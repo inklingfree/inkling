@@ -1,0 +1,11 @@
+{
+  "name": "inkling-browser",
+  "private": true,
+  "type": "module",
+  "description": "inkling's browser: one Chromium behind a small HTTP API, with a live view for people to sign in",
+  "scripts": { "start": "node server.mjs" },
+  "dependencies": {
+    "playwright-core": "1.63.0",
+    "ws": "^8.18.0"
+  }
+}

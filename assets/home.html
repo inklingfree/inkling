@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light only">
+<title>inkling</title>
+<meta name="description" content="inkling is a personal assistant that lives in your WhatsApp. Invite only for now.">
+<meta property="og:title" content="inkling">
+<meta property="og:description" content="A personal assistant that lives in your WhatsApp.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="{{BASE}}/inkling-card.jpg">
+<link rel="icon" type="image/png" href="/inkling-icon.png">
+<link rel="apple-touch-icon" href="/inkling-icon.png">
+<!-- analytics -->
+<script>
+  // Optional PostHog analytics: only kept when INKLING_POSTHOG_KEY is set (see src/web.ts). Clicks on the WhatsApp links carry data-ph.
+  !function(t,e){var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.crossOrigin="anonymous",p.async=!0,p.src=s.api_host.replace(".i.posthog.com","-assets.i.posthog.com")+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+".people (stub)"},o="init capture register register_once unregister opt_out_capturing has_opted_out_capturing opt_in_capturing reset identify setPersonProperties group alias set_config startSessionRecording stopSessionRecording get_distinct_id getFeatureFlag isFeatureEnabled onFeatureFlags".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
+  // persistence "memory": no cookies or local storage, so no cookie banner is needed (UK/EU rules); each visit counts on its own.
+  posthog.init({{POSTHOG_KEY}}, { api_host: {{POSTHOG_HOST}}, persistence: "memory", person_profiles: "identified_only", disable_session_recording: true });
+  posthog.register({ site: "inkling" });
+  document.addEventListener("click", (e) => {
+    const a = e.target.closest && e.target.closest("a[data-ph]");
+    if (a) posthog.capture("inkling_text_click", { link: a.dataset.ph });
+  });
+</script>
+<!-- /analytics -->
+<style>
+  :root { color-scheme: light; }
+  body { margin: 0; padding: 0 clamp(16px, 2.5vw, 36px); min-height: 100vh; display: flex; flex-direction: column; background: #fff; color: #111; font-family: "Times New Roman", Times, serif; font-size: 19px; }
+  main { flex: 1; max-width: 1100px; }
+  h1 { font-size: 2.4em; margin: 0.4em 0 0.6em; }
+  h2 { font-size: 1.75em; margin: 1.1em 0 0.9em; }
+  p { line-height: 1.7; margin: 0 0 0.9em; }
+  .contact { line-height: 1.6; }
+  footer { padding: 32px 0 22px; }
+  a { color: #0000ee; }
+</style>
+</head>
+<body>
+<main>
+  <h1>inkling</h1>
+
+  <h2>Contact</h2>
+  <p class="contact">WhatsApp: <a href="{{WHATSAPP}}" data-ph="contact">say hello</a></p>
+
+  <h2>About</h2>
+  <p>inkling is a personal assistant that lives in your WhatsApp. It knows your email, your calendar and the people you talk to, and keeps track of what matters to you. There's nothing new to learn: you text it the way you'd text a friend, on your own or in a group chat, and it texts back. When something needs doing on a website, it opens its own browser and does it the way you would. It picks up the messages you meant to reply to, reminds you before things slip, makes the plan, books the table and fills in the form, and it always checks with you before anything goes out in your name or costs you money.</p>
+  <p>inkling is invite only for now. You can join the waiting list <a href="{{WHATSAPP}}" data-ph="waitlist">here</a>, or ask someone who already uses it to add you.</p>
+</main>
+
+<footer>
+  <a href="/privacy">Privacy Policy</a>
+</footer>
+</body>
+</html>

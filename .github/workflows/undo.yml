@@ -1,0 +1,46 @@
+# Part of self-changes (optional, see README): undoes one of the assistant's changes after the owner says yes on
+# WhatsApp. Reverts its commit on master, then deploys with deploy.yml.
+name: Undo a change
+run-name: Undo ${{ inputs.id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      id:
+        description: Change id from the assistant
+        required: true
+        type: string
+      sha:
+        description: Commit to revert
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  id-token: write # passed on to the deploy job, which only logs in to Azure in the production environment
+
+jobs:
+  revert:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.push.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+      - id: push
+        env:
+          SHA: ${{ inputs.sha }}
+        run: |
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "Bad commit"; exit 1; }
+          git config user.name "inkling"
+          git config user.email "noreply@anthropic.com"
+          git revert --no-edit "$SHA"
+          git push origin HEAD:master
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+  deploy:
+    needs: revert
+    uses: ./.github/workflows/deploy.yml
+    with:
+      ref: ${{ needs.revert.outputs.sha }}

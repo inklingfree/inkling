@@ -1,0 +1,26 @@
+# inkling, plus its optional browser service. Settings come from .env; everything private stays in ./data.
+#   docker compose up -d                      start inkling
+#   docker compose logs -f inkling            scan the WhatsApp QR code printed here (first run only)
+#   docker compose --profile browser up -d    also run the browser service, for doing things on websites
+services:
+  inkling:
+    build: .
+    env_file: .env
+    environment:
+      INKLING_HOST: 0.0.0.0
+      INKLING_DATA_DIR: /data
+    volumes:
+      - ./data:/data
+    ports:
+      - "8787:8787"
+    restart: unless-stopped
+
+  browser:
+    build: ./browser
+    profiles: ["browser"]
+    environment:
+      # The same value as INKLING_BROWSER_SECRET in .env (32+ characters); the service refuses to start without it.
+      BROWSER_SECRET: ${INKLING_BROWSER_SECRET:-}
+    ports:
+      - "8080:8080"
+    restart: unless-stopped

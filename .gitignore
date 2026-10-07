@@ -1,0 +1,7 @@
+node_modules/
+# Everything private lives here: WhatsApp session, users.json (connector tokens), per-user history + memory
+data/
+.env
+version.json
+.inkling/
+browser/node_modules/

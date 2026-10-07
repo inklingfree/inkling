@@ -1,0 +1,79 @@
+# OPTIONAL template: deploys master (or a given commit) to an Azure App Service, checks the assistant comes back on
+# that commit with WhatsApp connected, and if it doesn't, rolls back to the last good commit (the "deployed" tag).
+# Self-changes (src/changes.ts) rely on this workflow to put merged changes live.
+#
+# It does nothing until these repository variables are set (Settings > Secrets and variables > Actions > Variables):
+#   AZURE_WEBAPP_URL       the app's public https address
+#   AZURE_WEBAPP_SCM_URL   its Kudu (SCM) https address
+#   AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID
+#                          an Entra app registration with a federated credential for this repo's "production"
+#                          environment and the Website Contributor role on that one app (OIDC: no stored password)
+# Create a "production" environment that only allows the master branch. Nothing here is specific to one deployment.
+name: Deploy
+run-name: Deploy ${{ inputs.ref || github.sha }}
+
+on:
+  push:
+    branches: [master]
+    paths-ignore: ["browser/**"] # the browser service has its own workflow (browser.yml)
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit or branch to deploy (default master)
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      ref:
+        required: false
+        type: string
+
+permissions:
+  contents: write # moves the "deployed" tag
+  id-token: write # Azure login without a stored password (only in the production environment)
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: vars.AZURE_WEBAPP_URL != '' && vars.AZURE_WEBAPP_SCM_URL != ''
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 40
+    env:
+      SCM: ${{ vars.AZURE_WEBAPP_SCM_URL }}
+      SITE: ${{ vars.AZURE_WEBAPP_URL }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Deploy and wait until the assistant is live on this commit
+        id: deploy
+        run: |
+          cp .github/deploy.sh "$RUNNER_TEMP/deploy.sh"
+          "$RUNNER_TEMP/deploy.sh" "$(git rev-parse HEAD)"
+      - name: Roll back to the last good commit
+        if: failure() && steps.deploy.outcome == 'failure'
+        run: |
+          git fetch --tags --force
+          GOOD=$(git rev-parse 'deployed^{commit}' 2>/dev/null) || { echo "No earlier good deploy to roll back to"; exit 1; }
+          echo "Rolling back to $GOOD"
+          "$RUNNER_TEMP/deploy.sh" "$GOOD"
+      - name: Mark this commit as the last good one
+        run: |
+          git tag -f deployed HEAD
+          git push -f origin deployed

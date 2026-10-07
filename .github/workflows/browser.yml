@@ -1,0 +1,59 @@
+# OPTIONAL template: builds the browser service (browser/) into an image, pushes it to an Azure Container Registry
+# and puts it live on an Azure Container App. Any host that runs a container works; this is one way.
+#
+# It does nothing until these repository variables are set (Settings > Secrets and variables > Actions > Variables):
+#   AZURE_ACR_NAME         the container registry's name (images go to <name>.azurecr.io/browser)
+#   AZURE_RESOURCE_GROUP   the resource group of the container app
+#   AZURE_BROWSER_APP      the container app's name (create it once by hand with BROWSER_SECRET set; see README)
+#   AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID   as for deploy.yml, with push rights on the registry
+#                          and Contributor on the container app
+name: Browser
+run-name: Browser ${{ github.sha }}
+
+on:
+  push:
+    branches: [master]
+    paths: ["browser/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # Azure login without a stored password (only in the production environment)
+
+concurrency:
+  group: browser
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: vars.AZURE_ACR_NAME != '' && vars.AZURE_RESOURCE_GROUP != '' && vars.AZURE_BROWSER_APP != ''
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    env:
+      ACR: ${{ vars.AZURE_ACR_NAME }}
+      RG: ${{ vars.AZURE_RESOURCE_GROUP }}
+      APP: ${{ vars.AZURE_BROWSER_APP }}
+      IMAGE: ${{ vars.AZURE_ACR_NAME }}.azurecr.io/browser:${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Build and push the image
+        run: |
+          az acr login --name "$ACR"
+          docker build -t "$IMAGE" browser
+          docker push "$IMAGE"
+      - name: Put it live (if the app exists yet)
+        run: |
+          if az containerapp show -g "$RG" -n "$APP" -o none 2>/dev/null; then
+            az containerapp update -g "$RG" -n "$APP" --image "$IMAGE" -o none
+            URL=https://$(az containerapp show -g "$RG" -n "$APP" --query properties.configuration.ingress.fqdn -o tsv)
+            for _ in $(seq 30); do curl -fsS -m 20 "$URL/health" && exit 0; sleep 10; done
+            echo "Not healthy in time"; exit 1
+          else
+            echo "No container app yet; the image is pushed for the first create."
+          fi

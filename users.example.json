@@ -1,0 +1,27 @@
+{
+  "users": [
+    {
+      "id": "sam",
+      "name": "Sam",
+      "phone": "447700900001",
+      "timezone": "Europe/London",
+      "admin": true,
+      "owner": true
+    },
+    {
+      "id": "alex",
+      "name": "Alex",
+      "phone": "447700900002",
+      "timezone": "Europe/London",
+      "briefTime": "08:00"
+    },
+    {
+      "id": "jordan",
+      "name": "Jordan",
+      "phone": "447700900003",
+      "otherPhones": ["15555550123"],
+      "timezone": "America/Toronto",
+      "language": "French"
+    }
+  ]
+}

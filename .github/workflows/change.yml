@@ -1,0 +1,102 @@
+# Part of self-changes (optional, see README): the assistant starts this with the owner's request, only after the
+# owner says yes on WhatsApp. Claude Code edits the code; this workflow, not the model, checks it, commits it to a
+# branch and opens a pull request. It has no deploy access (no id-token, no production environment), and changes to
+# workflows, .env or data are refused.
+# Needs the repository secret CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`).
+name: inkling change
+run-name: inkling change ${{ inputs.id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      id:
+        description: Change id from the assistant
+        required: true
+        type: string
+      request:
+        description: What the owner asked for
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: change
+  cancel-in-progress: false
+
+jobs:
+  change:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Start a branch
+        env:
+          ID: ${{ inputs.id }}
+        run: |
+          [[ "$ID" =~ ^[a-z0-9-]{4,40}$ ]] || { echo "Bad change id"; exit 1; }
+          git checkout -b "inkling/$ID"
+      - uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          claude_args: >-
+            --max-turns 80
+            --allowedTools "Read,Edit,Write,Glob,Grep,Bash(npm run typecheck),Bash(npx tsc --noEmit -p .),Bash(git diff:*),Bash(git status:*),Bash(ls:*)"
+          prompt: |
+            You are changing the code of inkling, a personal WhatsApp assistant (this repository). Its owner asked
+            for a change over WhatsApp. Read CLAUDE.md first and follow it, especially "Design principles": never
+            weaken them (confirmations before sending as someone, privacy of a linked WhatsApp, encryption at rest,
+            no em dashes).
+
+            Make the smallest change that does what they asked, matching the existing code style. Don't touch
+            .github/, .env files, data/ or package-lock.json unless the request needs a new dependency. Update
+            README.md or CLAUDE.md if what you change is described there. Run `npm run typecheck` and fix any errors
+            until it passes. Do not commit, push or open pull requests; the workflow does that after you finish.
+
+            Finally, write .inkling/summary.md for the owner: first line a short title (under 70 characters), then 2
+            to 4 short plain-English lines on what changed and anything they should know or test. No em dashes. If
+            the request is unclear, unsafe, or would break one of the design principles, change nothing and explain
+            why in that file.
+
+            The owner's request:
+            <request>
+            ${{ inputs.request }}
+            </request>
+      - name: Check the change
+        run: |
+          npm run typecheck
+          git add -A
+          CHANGED=$(git diff --cached --name-only)
+          if [ -z "$CHANGED" ]; then echo "No code was changed."; cat .inkling/summary.md 2>/dev/null || true; exit 1; fi
+          if grep -qE '^(\.github/|\.env|data/)' <<<"$CHANGED"; then echo "Changes to workflows, .env or data aren't allowed:"; echo "$CHANGED"; exit 1; fi
+          echo "$CHANGED"
+      - name: Commit and open a pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ID: ${{ inputs.id }}
+          REQUEST: ${{ inputs.request }}
+        run: |
+          TITLE=$(head -n1 .inkling/summary.md 2>/dev/null | cut -c1-72)
+          [ -n "$TITLE" ] || TITLE="inkling change $ID"
+          git config user.name "inkling (Claude Code)"
+          git config user.email "noreply@anthropic.com"
+          git commit -q -m "$TITLE" -m "Requested by the owner on WhatsApp: $REQUEST" -m "Co-Authored-By: Claude <noreply@anthropic.com>"
+          git push -q origin "inkling/$ID"
+          {
+            tail -n +2 .inkling/summary.md 2>/dev/null || true
+            echo
+            echo "**Request:** $REQUEST"
+            echo
+            echo "Made by Claude Code in $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          } > "$RUNNER_TEMP/body.md"
+          gh pr create --base master --head "inkling/$ID" --title "$TITLE" --body-file "$RUNNER_TEMP/body.md"

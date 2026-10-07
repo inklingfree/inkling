@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<meta name="robots" content="noindex">
+<title>inkling browser</title>
+<style>
+  :root { --bg: #f6f5f2; --fg: #1d1d1b; --muted: #6b6a66; --line: #dddad3; --accent: #1f7a5a; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #161615; --fg: #ecebe7; --muted: #9b9a95; --line: #33322f; --accent: #4fbf94; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.4 system-ui, -apple-system, sans-serif; }
+  header { padding: 10px 16px; display: flex; gap: 8px; align-items: center; border-bottom: 1px solid var(--line); }
+  header b { flex: 1; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #screen { display: block; width: 100%; max-width: 480px; margin: 0 auto; touch-action: manipulation; background: #fff; }
+  .bar { position: sticky; bottom: 0; background: var(--bg); border-top: 1px solid var(--line); padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); display: grid; gap: 8px; }
+  .row { display: flex; gap: 6px; }
+  input { flex: 1; min-width: 0; font: inherit; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: transparent; color: var(--fg); }
+  button { font: inherit; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: transparent; color: var(--fg); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  #status { color: var(--muted); font-size: 13px; padding: 8px 16px; }
+</style>
+</head>
+<body>
+<header><b id="where">Connecting…</b><button id="back" aria-label="Back">←</button></header>
+<p id="status">Tap the page to use it. Type into a field with the box below. Only you can see what you type here.</p>
+<img id="screen" alt="inkling browser">
+<div class="bar">
+  <div class="row"><input id="text" autocomplete="off" autocapitalize="off" placeholder="Type here, then Send"><button id="send">Send</button></div>
+  <div class="row">
+    <button data-key="Enter">Enter</button><button data-key="Backspace">⌫</button>
+    <button data-scroll="-600">↑</button><button data-scroll="600">↓</button>
+    <button class="primary" id="done" style="margin-left:auto">I'm done</button>
+  </div>
+</div>
+<script>
+  const ws = new WebSocket(location.href.replace(/^http/, "ws") + "/ws");
+  const img = document.getElementById("screen");
+  const where = document.getElementById("where");
+  const status = document.getElementById("status");
+  let size = { width: 1, height: 1 };
+  const send = (msg) => ws.readyState === 1 && ws.send(JSON.stringify(msg));
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === "frame") {
+      img.src = "data:image/jpeg;base64," + msg.data;
+      size = { width: msg.width, height: msg.height };
+      try { where.textContent = new URL(msg.url).hostname; } catch {}
+    } else if (msg.type === "closed") {
+      status.textContent = msg.text;
+    }
+  };
+  ws.onclose = () => { status.textContent = "Disconnected. If this link expired, ask for a new one in WhatsApp."; };
+  img.addEventListener("click", (e) => {
+    const r = img.getBoundingClientRect();
+    send({ type: "tap", x: ((e.clientX - r.left) / r.width) * size.width, y: ((e.clientY - r.top) / r.height) * size.height });
+  });
+  const text = document.getElementById("text");
+  document.getElementById("send").onclick = () => { if (text.value) { send({ type: "text", text: text.value }); text.value = ""; } };
+  text.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); document.getElementById("send").click(); } });
+  document.querySelectorAll("[data-key]").forEach((b) => (b.onclick = () => send({ type: "key", key: b.dataset.key })));
+  document.querySelectorAll("[data-scroll]").forEach((b) => (b.onclick = () => send({ type: "scroll", dy: Number(b.dataset.scroll) })));
+  document.getElementById("back").onclick = () => send({ type: "back" });
+  document.getElementById("done").onclick = () => send({ type: "done" });
+</script>
+</body>
+</html>

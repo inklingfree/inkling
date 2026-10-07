@@ -1,0 +1,6 @@
+node_modules
+browser/node_modules
+data
+.env
+.git
+version.json
