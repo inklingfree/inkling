@@ -1,5 +1,6 @@
 <p align="center"><img src="assets/inkling-card.jpg" alt="inkling" width="480"></p>
 <p align="center"><em>free intelligence for all</em></p>
+<p align="center">Say hello: <a href="mailto:hello@inkling.free">hello@inkling.free</a></p>
 <p align="center"><a href="https://buymeacoffee.com/inklingfree"><img src="https://img.shields.io/badge/Buy%20me%20a%20coffee-inklingfree-FFDD00?logo=buymeacoffee&amp;logoColor=black" alt="Buy me a coffee"></a></p>
 
 # inkling
