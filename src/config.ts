@@ -54,6 +54,8 @@ export const config = {
   webModel: process.env.INKLING_WEB_MODEL ?? (provider === "anthropic" ? "claude-opus-5-5" : "gpt-5.4-mini"),
   // Optional analytics (src/analytics.ts, and visit counts on assets/home.html): a PostHog project key. Off when unset.
   posthogKey: process.env.INKLING_POSTHOG_KEY || undefined,
+  /** Where the source code is, for people who'd rather run their own copy (waiting list and guest messages). */
+  sourceUrl: process.env.INKLING_SOURCE_URL ?? "https://github.com/inklingfree/inkling",
   posthogHost: (process.env.INKLING_POSTHOG_HOST ?? "https://us.i.posthog.com").replace(/\/$/, ""),
 };
 

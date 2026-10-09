@@ -88,7 +88,13 @@ photo when it connects (once per image), and `INKLING_NAME` its profile name.
   (`noteWaiting`) with what the assistant is and their place in the queue, at most once a day, after a pause like a
   person's (`answerLikeAPerson`). Admins approve or decline on a private page (`/waitlist`, 30 minutes). Approving
   always creates a new person (`approveWaiting`): the prefilled name is whatever the stranger called themselves, so
-  merging into someone with the same name would hand them that person's data.
+  merging into someone with the same name would hand them that person's data. It holds 3,000 people (declined ones
+  make room first; nobody loses their place to someone newer), then tells newcomers it's full and points them to the
+  source code. Replies to strangers are capped at 30 an hour across everyone (`MAX_REPLIES_PER_HOUR`), since a rush of
+  messages to new contacts is what gets a WhatsApp number banned; people over the cap get their reply later.
+- The web server also answers `robots.txt`, `sitemap.xml`, `llms.txt`, `favicon.ico` and an IndexNow key file
+  (a hash of `INKLING_PUBLIC_URL`), sends `www.` to the bare public address, and `/chat` redirects to a WhatsApp chat
+  with the assistant (counted as `chat_link_opened` with its `?ref=` and referring site, when analytics is on).
 - Usage analytics never include content: no prompts, replies, tool arguments or contact names; people and chats are
   an HMAC of their id; error text is scrubbed of quoted text, emails and numbers. The privacy page says so.
 - On websites, the assistant never presses a final button (pay, order, book, submit) without the person's yes on a

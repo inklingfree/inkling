@@ -1,9 +1,10 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import http from "node:http";
 import { config, getUsers, type User } from "./config.js";
 import { googleCalendarUrl, icsFor, sharedEvent, whenText } from "./events.js";
 import { finishGoogleConnect, googleAuthUrl, googleCallbackPath } from "./google.js";
+import { track } from "./analytics.js";
 import { log } from "./log.js";
 import { approveWaiting, declineWaiting, waitingList } from "./people.js";
 import QRCode from "qrcode";
@@ -87,6 +88,37 @@ const brand: Record<string, [string, Buffer]> = Object.fromEntries(
     [f.endsWith(".jpg") ? "image/jpeg" : "image/png", readFileSync(new URL(`../assets/${f}`, import.meta.url))],
   ]),
 );
+
+// For search engines and AI search: what to crawl, the public pages, a plain summary (llms.txt), the icon where
+// browsers and Google look for it, and the IndexNow key that lets Bing and others be told about changes.
+const indexNowKey = createHash("sha256").update(config.publicUrl).digest("hex").slice(0, 32);
+const crawl: Record<string, [string, string | Buffer]> = {
+  "/robots.txt": [
+    "text/plain; charset=utf-8",
+    ["User-agent: *", "Allow: /", ...["/connect/", "/admin/", "/e/", "/whatsapp", "/health", "/chat"].map((p) => `Disallow: ${p}`), "", `Sitemap: ${config.publicUrl}/sitemap.xml`, ""].join("\n"),
+  ],
+  "/sitemap.xml": [
+    "application/xml; charset=utf-8",
+    `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${["/", "/privacy", "/terms"]
+      .map((p) => `  <url><loc>${config.publicUrl}${p}</loc></url>`)
+      .join("\n")}\n</urlset>\n`,
+  ],
+  "/llms.txt": [
+    "text/plain; charset=utf-8",
+    `# ${config.name}
+
+> A personal AI assistant that lives in WhatsApp. You text it like a friend, on your own or in a group chat, and it handles email, calendar, reminders, plans and errands on websites. It always asks before anything goes out in your name or costs money.
+
+- [Home](${config.publicUrl}/)
+- [Chat on WhatsApp](${config.publicUrl}/chat): opens a WhatsApp chat with ${config.name}
+- [Source code](${config.sourceUrl}): open source and self-hosted
+- [Privacy Policy](${config.publicUrl}/privacy)
+- [Terms of Service](${config.publicUrl}/terms)
+`,
+  ],
+  "/favicon.ico": ["image/png", brand["/inkling-icon.png"][1]],
+  [`/${indexNowKey}.txt`]: ["text/plain; charset=utf-8", indexNowKey],
+};
 
 /** The home page's analytics block is only kept when a PostHog key is configured (INKLING_POSTHOG_KEY). */
 function withAnalytics(html: string): string {
@@ -199,6 +231,16 @@ export function startWeb(): void {
       res.end(html);
     };
 
+    // One address for search engines: www.example.com goes to example.com when that's the public address.
+    const publicHost = new URL(config.publicUrl).host;
+    if (req.method === "GET" && req.headers.host === `www.${publicHost}`) {
+      res.writeHead(301, { location: `${config.publicUrl}${url.pathname}${url.search}` });
+      return res.end();
+    }
+    if (req.method === "GET" && crawl[url.pathname]) {
+      res.writeHead(200, { "content-type": crawl[url.pathname][0], "cache-control": "public, max-age=3600" });
+      return res.end(crawl[url.pathname][1]);
+    }
     if (req.method === "GET" && url.pathname === "/health") {
       // For the deploy check: which commit is running and whether WhatsApp is connected. Nothing else.
       res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
@@ -208,11 +250,24 @@ export function startWeb(): void {
       res.writeHead(200, { "content-type": brand[url.pathname][0], "cache-control": "public, max-age=86400" });
       return res.end(brand[url.pathname][1]);
     }
+    // WhatsApp to this assistant's number with a hello typed in.
+    const phone = botPhone();
+    const whatsapp = phone ? `https://wa.me/${phone}?text=${encodeURIComponent(`Hi! I'd like to try ${config.name}.`)}` : undefined;
+    if (req.method === "GET" && url.pathname === "/chat") {
+      // A short link for posts and videos (/chat?ref=tiktok): straight into a WhatsApp chat. Counted by where it came
+      // from, nothing about who.
+      const ref = (url.searchParams.get("ref") ?? "").replace(/[^a-z0-9_-]/gi, "").slice(0, 30);
+      let from = "direct";
+      try {
+        if (req.headers.referer) from = new URL(req.headers.referer).host;
+      } catch {}
+      track("chat_link_opened", "web", { ref: ref || "none", from });
+      res.writeHead(302, { location: whatsapp ?? "/", "cache-control": "no-store" });
+      return res.end();
+    }
     if (req.method === "GET" && url.pathname === "/") {
-      // The public home page. Its links open WhatsApp to this assistant's number with a hello typed in.
-      const phone = botPhone();
-      const whatsapp = phone ? `https://wa.me/${phone}?text=${encodeURIComponent(`Hi! I'd like to try ${config.name}.`)}` : "#";
-      return reply(200, homePage.replaceAll("{{WHATSAPP}}", whatsapp));
+      // The public home page. Its links open the WhatsApp chat.
+      return reply(200, homePage.replaceAll("{{WHATSAPP}}", whatsapp ?? "#"));
     }
     if (req.method === "GET" && url.pathname === "/privacy") return reply(200, privacyPage());
     if (req.method === "GET" && url.pathname === "/terms") return reply(200, termsPage());

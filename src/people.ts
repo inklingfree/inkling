@@ -1,4 +1,5 @@
 import path from "node:path";
+import { track } from "./analytics.js";
 import { config, getUsers, phonesOf, saveUsers, type User } from "./config.js";
 import { readSealedJson, writeSealedJson } from "./vault.js";
 
@@ -24,7 +25,23 @@ const joined = (w: Waiting) => w.joinedAt ?? w.messages[0].at;
 const KEEP_DAYS = 60;
 const ANSWER_DAYS = 3;
 const REPLY_EVERY_MS = 24 * 3_600_000;
+// How many people can wait at once. Past that, newcomers are told it's full rather than pushing anyone out.
+const MAX_WAITING = 3000;
+// Replies to strangers per hour, across everyone. A sudden rush of messages to new contacts is what gets a WhatsApp
+// number banned, so past this people are still noted but answered later (their next message, or on approval).
+const MAX_REPLIES_PER_HOUR = 30;
+const recentReplies: number[] = [];
+/** When each person was last told the list is full (in memory; it's only to keep that to once a day). */
+const toldFull = new Map<string, number>();
 const waitingFile = () => path.join(config.dataDir, "waiting.json");
+
+function replyAllowed(): boolean {
+  const hourAgo = Date.now() - 3_600_000;
+  while (recentReplies.length && recentReplies[0] < hourAgo) recentReplies.shift();
+  if (recentReplies.length >= MAX_REPLIES_PER_HOUR) return false;
+  recentReplies.push(Date.now());
+  return true;
+}
 
 function loadWaiting(): Waiting[] {
   const all = readSealedJson<Waiting[]>(waitingFile(), []);
@@ -32,7 +49,12 @@ function loadWaiting(): Waiting[] {
 }
 
 function saveWaiting(all: Waiting[]): void {
-  writeSealedJson(waitingFile(), all.slice(-500));
+  // Declined people make room first; nobody waiting loses their place to someone newer.
+  const keep =
+    all.length > MAX_WAITING
+      ? [...all.filter((w) => !w.declined).sort((a, b) => joined(a) - joined(b)), ...all.filter((w) => w.declined)].slice(0, MAX_WAITING)
+      : all;
+  writeSealedJson(waitingFile(), keep);
 }
 
 /**
@@ -41,16 +63,23 @@ function saveWaiting(all: Waiting[]): void {
  */
 export function noteWaiting(phone: string, name: string, chatJid: string, text: string): string[] | undefined {
   const all = loadWaiting();
-  const entry: Waiting = all.find((w) => w.phone === phone) ?? { phone, name, chatJid, messages: [], joinedAt: Date.now() };
+  const n = config.name;
+  const known = all.find((w) => w.phone === phone);
+  if (!known && all.filter((w) => !w.declined).length >= MAX_WAITING) {
+    if ((toldFull.get(phone) ?? 0) > Date.now() - REPLY_EVERY_MS || !replyAllowed()) return;
+    toldFull.set(phone, Date.now());
+    return [`Hi! I'm ${n}, a personal assistant that lives in WhatsApp. The waiting list is full right now, sorry. Try again in a few days, or run your own copy: ${config.sourceUrl}`];
+  }
+  if (!known) track("waitlist_joined", phone);
+  const entry: Waiting = known ?? { phone, name, chatJid, messages: [], joinedAt: Date.now() };
   entry.messages = [...entry.messages, { text, at: Date.now() }].slice(-5);
   const first = !entry.repliedAt;
-  const reply = !entry.declined && (first || entry.repliedAt! < Date.now() - REPLY_EVERY_MS);
+  const reply = !entry.declined && (first || entry.repliedAt! < Date.now() - REPLY_EVERY_MS) && replyAllowed();
   if (reply) entry.repliedAt = Date.now();
   const rest = all.filter((w) => w.phone !== phone);
   saveWaiting([...rest, entry]);
   if (!reply) return;
   const place = rest.filter((w) => !w.declined && joined(w) <= joined(entry)).length + 1;
-  const n = config.name;
   return first
     ? [
         `Hi! I'm ${n}, a personal assistant that lives in your WhatsApp. You text me the way you'd text a friend, and I keep track of your email and calendar, remind you before things slip, make the plan and book the table, and always check with you before anything goes out in your name or costs you money.`,

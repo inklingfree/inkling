@@ -65,7 +65,10 @@ people you choose. It only ever replies to people on your list.
   several numbers.
 - A **waiting list**: people who aren't on the list get a short, fixed reply (after a natural pause, at most once a
   day) with their place in the queue. Admins send `/waitlist` for a private 30-minute page to approve or decline
-  them; approved people get their recent messages answered or a welcome.
+  them; approved people get their recent messages answered or a welcome. Replies to strangers are capped at 30 an
+  hour, so a rush doesn't get the number banned.
+- A **public home page** with `robots.txt`, a sitemap and `llms.txt` for search engines, and a short link
+  (`/chat`, with an optional `?ref=` to count where people came from) that opens a WhatsApp chat with the assistant.
 - **Usage analytics** (optional, PostHog): model costs and speed, tools used, answered messages and errors, with
   anonymous ids and never message contents.
 - A plain **public home page** at the site root (`assets/home.html`) with a "say hello" link that opens WhatsApp to
