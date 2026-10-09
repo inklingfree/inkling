@@ -47,7 +47,7 @@ See README.md for the feature list, setup and security model.
 | `memory.ts` | Longer memory: archived turns and their running recap (the first message of each turn), `recall` keyword search over them, dated notes, a daily tidy of notes (backup in `memory-before-tidy`) |
 | `analytics.ts` | Optional usage analytics to PostHog (`INKLING_POSTHOG_KEY`): model calls, tool calls, turns, errors; anonymous ids, never content |
 | `schedule.ts` | Jobs the assistant runs itself: morning brief, travel checks, flight status, dates, watches (prompts starting "(automatic") |
-| others | `reminders`, `polls`, `lists`, `dates`, `watches`, `travel`, `images` (FLUX), `voice` (gpt-4o-transcribe in, gpt-4o-mini-tts out for urgent reminders), `location`, `browse`, `people`, `text`, `time`, `log` |
+| others | `reminders`, `polls`, `lists`, `dates`, `watches`, `travel`, `images` (FLUX), `voice` (gpt-4o-transcribe in; out with ElevenLabs when `INKLING_ELEVENLABS_API_KEY` is set, else gpt-4o-mini-tts: urgent reminders, and short replies to voice notes come back as voice notes), `location`, `browse`, `people`, `text`, `time`, `log` |
 
 Data (`data/` by default, `INKLING_DATA_DIR` elsewhere; all gitignored): `users.json` (people, picked up without a
 restart), `auth/` (the assistant's WhatsApp session), `users/<id>/` and `groups/group-<id>/` (history, memory, Google

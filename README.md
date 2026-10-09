@@ -38,7 +38,8 @@ people you choose. It only ever replies to people on your list.
   real link. Finds tickets and tables near you and sends the booking page; once you say "booked", it sets a
   reminder and a calendar event.
 - **See photos and understand voice notes** (gpt-4o-transcribe, with a per-person language hint). In groups, saying
-  its name in a voice note calls it just like typing it.
+  its name in a voice note calls it just like typing it. With an ElevenLabs key (`INKLING_ELEVENLABS_API_KEY`), a
+  short reply to a voice note comes back as a voice note, and spoken reminders use that voice.
 - **Reminders** ("remind me at 6", "every Monday at 9"; urgent ones also arrive as a spoken voice note), WhatsApp
   **polls** with readable votes, and emoji reactions.
 - **Google**, with several accounts per person (`/connect google`, `/google`, `/disconnect google [email]`): search

@@ -1,6 +1,7 @@
 import OpenAI, { AzureOpenAI, toFile } from "openai";
 import { media } from "./ai.js";
 import { config } from "./config.js";
+import { log } from "./log.js";
 
 // Voice notes in (transcription) and out (spoken urgent reminders), with Azure or OpenAI audio models: the same
 // account as the chat models, or, with Claude (no speech API), Azure or OpenAI keys set alongside (ai.ts media()).
@@ -31,8 +32,39 @@ const hints: Record<string, string> = {
   mandarin: "以下是普通话录音。",
 };
 
-/** Says the text out loud (gpt-4o-mini-tts by default), as Ogg/Opus (what WhatsApp voice notes use). */
+/**
+ * Says the text out loud as Ogg/Opus (what WhatsApp voice notes use): with ElevenLabs when INKLING_ELEVENLABS_API_KEY
+ * is set, otherwise (or if ElevenLabs fails) with the provider's speech model (gpt-4o-mini-tts by default).
+ */
 export async function speak(text: string): Promise<Buffer> {
+  if (config.elevenLabsKey) {
+    try {
+      return await speakElevenLabs(text);
+    } catch (err) {
+      log.warn({ err }, "ElevenLabs couldn't speak; using the provider's voice");
+    }
+  }
+  return speakModel(text);
+}
+
+async function speakElevenLabs(text: string): Promise<Buffer> {
+  const res = await fetch(
+    `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(config.elevenLabsVoice)}?output_format=opus_48000_64`,
+    {
+      method: "POST",
+      headers: { "xi-api-key": config.elevenLabsKey!, "content-type": "application/json" },
+      body: JSON.stringify({ text: text.slice(0, 1000), model_id: config.elevenLabsModel }),
+      signal: AbortSignal.timeout(30_000),
+    },
+  );
+  if (!res.ok) throw new Error(`ElevenLabs ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const sound = Buffer.from(await res.arrayBuffer());
+  // WhatsApp only plays Opus inside an Ogg file; anything else would arrive as a broken voice note.
+  if (sound.subarray(0, 4).toString("latin1") !== "OggS") throw new Error("ElevenLabs didn't return Ogg/Opus");
+  return sound;
+}
+
+async function speakModel(text: string): Promise<Buffer> {
   const res = await audio(config.ttsModel).audio.speech.create({
     model: config.ttsModel,
     voice: "coral",

@@ -127,6 +127,9 @@ async function answerLikeAPerson(msg: InboundMessage, bubbles: string[], waiting
   }
 }
 
+/** Short, single-part, no links or code: fine to say out loud instead of typing. */
+const speakable = (reply: string) => !!reply && reply.length <= 400 && bubbles(reply).length === 1 && !/https?:\/\/|`/.test(reply);
+
 /** A note to send a guest after their next reply (the heads-up near their daily limit), by chat key. */
 const guestNotes = new Map<string, string>();
 
@@ -179,7 +182,17 @@ async function drain(key: string, queue: { busy: boolean; pending: Queued[] }): 
       const incoming: Incoming[] = batch.map(({ msg, user }) => ({ ...msg, from: user.name }));
       const reply = await respond(chat, incoming, chatActions(chat, chatJid, last.key));
       stopTyping();
-      await sendReply(chatJid, reply);
+      // Spoken to, it speaks back: with ElevenLabs set up, a short reply to a voice note comes as a voice note. Replies
+      // with links or several parts stay as text, since those don't work out loud.
+      let spoken = false;
+      if (config.elevenLabsKey && last.text.startsWith("(voice note)") && speakable(reply)) {
+        const sound = await speak(reply).catch((err) => log.warn({ err }, "couldn't speak the reply"));
+        if (sound) {
+          await sendVoiceNote(chatJid, sound);
+          spoken = true;
+        }
+      }
+      if (!spoken) await sendReply(chatJid, reply);
       // A guest near their daily limit gets the heads-up after the reply.
       const note = guestNotes.get(key);
       if (note) {

@@ -51,6 +51,11 @@ export const config = {
   // Websites: the assistant's browser service (browser/, deployed separately) and the model that drives it. Off without them.
   browserUrl: (process.env.INKLING_BROWSER_URL ?? "").replace(/\/$/, "") || undefined,
   browserSecret: process.env.INKLING_BROWSER_SECRET || undefined,
+  // ElevenLabs voices (voice.ts): spoken replies to voice notes and urgent reminders. Off without a key, and then
+  // urgent reminders use the provider's own voice (INKLING_TTS_MODEL) and replies stay as text.
+  elevenLabsKey: process.env.INKLING_ELEVENLABS_API_KEY || undefined,
+  elevenLabsVoice: process.env.INKLING_ELEVENLABS_VOICE ?? "JBFqnCBsd6RMkjVDRZzb",
+  elevenLabsModel: process.env.INKLING_ELEVENLABS_MODEL ?? "eleven_flash_v2_5",
   webModel: process.env.INKLING_WEB_MODEL ?? (provider === "anthropic" ? "claude-opus-5-5" : "gpt-5.4-mini"),
   // Optional analytics (src/analytics.ts, and visit counts on assets/home.html): a PostHog project key. Off when unset.
   posthogKey: process.env.INKLING_POSTHOG_KEY || undefined,
