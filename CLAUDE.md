@@ -162,7 +162,6 @@ photo when it connects (once per image), and `INKLING_NAME` its profile name.
   `browser` profile). Any other host works too: a long-lived Node.js process, a persistent `INKLING_DATA_DIR`,
   `INKLING_HOST=0.0.0.0` and `INKLING_PUBLIC_URL`. Every tool call logs `"msg":"tool"` with its name (never its
   arguments).
-
 - Deploys don't drop messages (`handoff.ts`). Hosts like App Service start the new copy while the old one still runs,
   sharing the data folder, but only one copy can hold WhatsApp. The running copy writes `handoff-alive.json` every
   2 seconds; a new copy (on another host name) that sees it writes `handoff-request.json` and waits up to a minute.
