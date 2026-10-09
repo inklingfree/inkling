@@ -25,8 +25,9 @@ function document(title: string, sections: [string, string[]][]): string {
 
 function privacyPage(): string {
   const n = config.name;
+  const guests = config.guestMessages > 0;
   return document("Privacy Policy", [
-    ["", [`${n} is a personal assistant that lives in WhatsApp. It is a small, invite-only service run privately for its owner and a few friends, not a commercial product. This page explains what it does with your information.`]],
+    ["", [`${n} is a personal assistant that lives in WhatsApp. It is a small${guests ? "" : ", invite-only"} service run privately for its owner and a few friends, not a commercial product.${guests ? " Anyone can try it as a guest; connecting accounts is for people the owner or an admin has added." : ""} This page explains what it does with your information.`]],
     ["What it uses", [
       `Your WhatsApp messages to ${n}, so it can reply. Messages are processed by AI models on Microsoft Azure to write replies; nothing is kept on Azure between messages, and they are not used to train models.`,
       `If you connect Google: your Gmail, Calendar, Drive, Docs, Sheets and Tasks, used only to do what you ask (for example finding an email, adding an event, or reading a document you name). You choose what to allow on Google's sign-in screen and can untick anything.`,
@@ -36,6 +37,9 @@ function privacyPage(): string {
     ["How it's stored", [
       `Your chat history, notes, connections and sign-ins are stored separately for each person on the owner's server, encrypted, and never shared with other people. In group chats it only ever shares when people are busy, never what their events are.`,
       `Anything that goes out as you (a WhatsApp message, an email, a calendar invite, a payment) is shown to you first and only happens after you say yes.`,
+      ...(guests
+        ? [`If you try ${n} as a guest, your chat with it is stored the same way, encrypted and only for you, and how many messages you've sent today is counted under an anonymous code.`]
+        : []),
       `If you message ${n} before you've been let in, your WhatsApp name, number and last few messages are kept, encrypted, so the owner can let you in. They're deleted when you're let in, or 60 days after your last message.`,
     ]],
     ["Google user data", [
@@ -53,8 +57,9 @@ function privacyPage(): string {
 
 function termsPage(): string {
   const n = config.name;
+  const guests = config.guestMessages > 0;
   return document("Terms of Service", [
-    ["", [`${n} is a personal, invite-only WhatsApp assistant run privately by its owner. By using it you agree to these terms.`]],
+    ["", [`${n} is a personal${guests ? "" : ", invite-only"} WhatsApp assistant run privately by its owner.${guests ? ` Anyone can try it as a guest, up to ${config.guestMessages} messages a day.` : ""} By using it you agree to these terms.`]],
     ["Using it", [
       `Use ${n} for your own everyday tasks. Don't use it to break the law, to harass or spam anyone, or to get into accounts or data that aren't yours.`,
       `${n} makes mistakes. Check anything important it tells you, especially dates, money and anything it reads from the web or your email.`,

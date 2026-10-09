@@ -18,6 +18,7 @@ import { callWorkspaceTool, workspaceTools } from "./gdrive.js";
 import { finalDraft, forgetSignIns, signedInSites, webConfirm, webEnabled, webSignIn, webTask } from "./web-agent.js";
 import { addAutoReply, listAutoReplies, removeAutoReply } from "./auto-replies.js";
 import { googleAccounts, googleConfigured } from "./google.js";
+import { isGuest } from "./guests.js";
 import { log } from "./log.js";
 import { addPerson, listPeople, removePerson, setAdmin } from "./people.js";
 import type { Repeat } from "./reminders.js";
@@ -661,7 +662,9 @@ function instructions(chat: Chat, memory: string[], canSearch: boolean): string 
     connections.push("You don't have anyone's email in a group. If someone wants email help, tell them to message you privately.");
     const withCal = group.members.filter((m) => googleAccounts(m.id).some((a) => a.calendar)).map((m) => m.name);
     connections.push(
-      withCal.length
+      isGuest(user)
+        ? `Calendars aren't available to ${user.name || "this person"}, who isn't on the list yet: if they ask when people are free or to add a plan to calendars, say someone on the list can ask you.`
+        : withCal.length
         ? `Calendars connected: ${withCal.join(", ")}. You can check when they're busy (times only, never what the events are) and add plans to everyone's calendar, or just the asker's, when someone asks.`
         : "Nobody here has connected a calendar yet. Anyone who wants that can message you /connect google privately.",
     );
@@ -685,7 +688,11 @@ function instructions(chat: Chat, memory: string[], canSearch: boolean): string 
     if (missing && googleConfigured()) {
       connections.push("If they ask for Drive, Docs, Sheets or Tasks, their Google connection predates those: call connect_google so they can sign in again and allow them.");
     }
-    if (googleConfigured()) {
+    if (isGuest(user)) {
+      connections.push(
+        `${user.name || "They"} isn't on your list yet: they're trying ${config.name} as a guest, free for ${config.guestMessages} messages a day. You can chat, search, set reminders, make lists, polls and images. Connecting Google (email, calendar, Drive), doing things on websites and morning briefs are for people on the list: if they ask, say someone who uses ${config.name} can add them, or they can run their own ${config.name}, free and open source: ${config.sourceUrl}`,
+      );
+    } else if (googleConfigured()) {
       connections.push(
         `To connect a Google account (another one, or to reconnect), call connect_google: it sends them a sign-in link. You can't open pages or sign in for anyone yourself, so never say you're "opening" anything. /disconnect google removes accounts.`,
       );
@@ -714,7 +721,7 @@ How to text:
 - Reply in the language the person writes or speaks in.
 - When someone just says thanks, ok, or shares good news, react with an emoji (react tool) and send no text at all.
 - Slow requests get an acknowledgement reaction automatically, so don't react just to acknowledge; get on with the work.
-- Messages start with a timestamp in ${user.name}'s time zone (${user.timezone}). Use it for dates and times, and never repeat it back.${user.language ? `\n- ${user.name} usually speaks ${user.language}.` : ""}${user.city ? `\n- ${user.name} is based in ${user.postcode ? `${user.postcode}, ` : ""}${user.city}; "here" or "near me" means there.` : `\n- You don't know where ${user.name} is based. If you need it for something local ("near me", "around here"), ask for their postcode (or city if they're abroad) and save it with set_location.`}
+- Messages start with a timestamp in ${user.name}'s time zone (${user.timezone}). Use it for dates and times, and never repeat it back.${user.language ? `\n- ${user.name} usually speaks ${user.language}.` : ""}${user.city ? `\n- ${user.name} is based in ${user.postcode ? `${user.postcode}, ` : ""}${user.city}; "here" or "near me" means there.` : `\n- You don't know where ${user.name} is based. If you need it for something local ("near me", "around here"), ask for their postcode (or city if they're abroad)${isGuest(user) ? " and use it for this chat" : " and save it with set_location"}.`}
 - Messages marked (voice note) were spoken and transcribed, so allow for transcription mistakes.
 
 What you can do:
@@ -728,12 +735,13 @@ ${
 - Remember things with the remember tool when someone shares something worth keeping or asks you to, and use forget when a note stops being true. Notes end with the date they were saved; when two disagree, the newer one wins. For something from a while ago that you can't see, use recall before saying you don't know.${group ? " Notes here are shared with everyone in this group." : ""}
 - Make a Google Calendar link with share_event when someone wants to share a plan; anyone can tap it to save the event to their own calendar. It doesn't invite, add or notify anyone, so never call it an invite or say people were added. If it should also go in their own calendar and theirs is connected, add it there too.${group ? "" : ` To send it to someone ("send sam the link for dinner"), make the link with send_here false and draft it to them with send_as_me in the same turn, writing {link} in the text.`}
 ${
-  group
+  isGuest(user)
+    ? ""
+    : group
     ? `- Google invites by email: when someone asks to invite people to a plan in their own calendar, use calendar_invite with the emails people posted in this chat. If someone's email isn't here, ask them to post it; you can't look addresses up in a group. Find the event by its title and day (or the event id from calendar_add_event); if it isn't in their calendar yet, add it first with calendar_add_event. The person who asked gets it in their private chat with you, and it's only sent after their yes there; say that in a few words.`
     : "- When they give someone's email for a plan (or ask for a Google invite), invite them to the event in their Google Calendar with calendar_invite, so Google emails the invite; add the event first if it isn't there. It's shown to them first and sent after their yes with confirm_send. gmail_find_email looks up an address if they only give a name."
 }
-- To change an event that's already in a calendar (add the location, move it, rename it), use calendar_update_event. Don't add a new event for it.
-- For any other email, use send_email; it's also shown first and sent after their yes with confirm_send.${
+${isGuest(user) ? "" : "- To change an event that's already in a calendar (add the location, move it, rename it), use calendar_update_event. Don't add a new event for it.\n"}- For any other email, use send_email; it's also shown first and sent after their yes with confirm_send.${
   !group && webEnabled()
     ? `\n- You have your own web browser (web_task) for doing things on websites: searching a site, filling forms, booking, ordering, checking in, cancelling. You can't sign in for them: web_task or web_signin sends them a link to do it themselves. Final steps always come to them with a screenshot for a yes. Buying also needs their spending limit (${user.spendLimit ? `now ${user.spendLimit} per purchase` : "not set, so buying is off until they set one"}) and a way to pay: they sign in once (web_signin) to Shop Pay (shop.app, works on any Shopify store), PayPal or Amazon, where their card is saved; you never see or type card numbers. wallet shows their setup. For a quick recommendation, a link is still better than the browser.`
     : ""
@@ -896,10 +904,14 @@ export async function respond(chat: Chat, batch: Incoming[], actions: ChatAction
   }
   const memory = loadMemory(chat.id);
   const accounts = group ? [] : googleAccounts(user.id);
-  const calendarHere = group
-    ? group.members.some((m) => googleAccounts(m.id).some((a) => a.calendar))
-    : accounts.some((a) => a.calendar);
+  // Guests (not on the list) never get calendars, not even in a group with connected members: when people are busy,
+  // and adding to their calendars, are only for people on the list.
+  const calendarHere =
+    !isGuest(user) &&
+    (group ? group.members.some((m) => googleAccounts(m.id).some((a) => a.calendar)) : accounts.some((a) => a.calendar));
   const canSearch = config.webSearch && searchesToday() < config.dailySearches;
+  // Guests also get no Google sign-in, websites, morning briefs or saved locations.
+  const guest = isGuest(user);
   const tools: OpenAI.Responses.Tool[] = [
     ...(canSearch
       ? [{ type: "web_search" as const, user_location: { type: "approximate" as const, timezone: user.timezone, ...(user.city && { city: user.city }) } }]
@@ -908,7 +920,7 @@ export async function respond(chat: Chat, batch: Incoming[], actions: ChatAction
     ...(accounts.some((a) => a.gmail) ? gmailTools : []),
     ...(group ? [] : workspaceTools(accounts)),
     ...(calendarHere ? calendarTools(!!group) : []),
-    ...(!group && googleConfigured() ? [connectTool] : []),
+    ...(!group && !guest && googleConfigured() ? [connectTool] : []),
     pollResultsTool,
     recommendTool,
     shareEventTool,
@@ -918,14 +930,14 @@ export async function respond(chat: Chat, batch: Incoming[], actions: ChatAction
     ...listTools,
     ...dateTools,
     ...watchTools,
-    ...(group ? [] : [briefTool]),
+    ...(group || guest ? [] : [briefTool]),
     ...(!group && accounts.some((a) => a.gmail) ? travelTools : []),
     ...(!group && user.admin ? (isLinked(user.id) ? personalTools : [linkTool]) : []),
     ...(!group && accounts.some((a) => a.gmail) ? [sendEmailTool] : []),
-    ...(!group && webEnabled() ? webTools : []),
+    ...(!group && !guest && webEnabled() ? webTools : []),
     ...(!group && user.owner && changesEnabled() ? selfChangeTools : []),
-    ...(!group && (((user.admin && isLinked(user.id)) || (user.owner && changesEnabled())) || accounts.some((a) => a.gmail || a.calendar) || webEnabled()) ? [confirmTool] : []),
-    setLocationTool,
+    ...(!group && !guest && (((user.admin && isLinked(user.id)) || (user.owner && changesEnabled())) || accounts.some((a) => a.gmail || a.calendar) || webEnabled()) ? [confirmTool] : []),
+    ...(guest ? [] : [setLocationTool]),
     ...reminderTools,
     ...(user.admin ? adminTools.filter((t) => !group || t.name !== "list_people") : []),
     ...(!group && user.owner ? [setAdminTool] : []),
@@ -1435,6 +1447,8 @@ async function runTool(
     if (call.name.startsWith("gmail_") && !chat.group) {
       return output(await callGmailTool(chat.user.id, call.name, args));
     }
+    // Never offered to guests; refused here too in case a call gets through.
+    if (call.name.startsWith("calendar_") && isGuest(chat.user)) return output("Calendars are only for people on the list.");
     if (call.name === "calendar_invite") {
       // Google emails the invite from their account, so it always waits for their yes (then confirm_send), and when
       // asked for in a group, that yes comes from their private chat.

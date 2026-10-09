@@ -88,6 +88,9 @@ export function noteWaiting(phone: string, name: string, chatJid: string, text: 
     : [`You're still on the waiting list, number ${place} in the queue. I'll message you here as soon as you're in.`];
 }
 
+/** An admin declined them: they stay ignored, even as a guest. */
+export const isDeclined = (phone: string) => loadWaiting().some((w) => w.phone === phone && w.declined);
+
 /** Everyone on the waiting list who hasn't been declined, oldest first. */
 export function waitingList(): Waiting[] {
   return loadWaiting()

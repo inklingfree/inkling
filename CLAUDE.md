@@ -92,6 +92,12 @@ photo when it connects (once per image), and `INKLING_NAME` its profile name.
   make room first; nobody loses their place to someone newer), then tells newcomers it's full and points them to the
   source code. Replies to strangers are capped at 30 an hour across everyone (`MAX_REPLIES_PER_HOUR`), since a rush of
   messages to new contacts is what gets a WhatsApp number banned; people over the cap get their reply later.
+- Guests (`guests.ts`, user id `guest-<phone>`): people not on the list talking to the assistant in an open group,
+  or, with `INKLING_GUEST_MESSAGES` set, in a private chat. They get chat, search, reminders, lists, polls and images,
+  never Google, calendars (not even a group's), websites, morning briefs or a saved location: the tools aren't
+  offered, the prompt says so, `runTool` refuses `calendar_` calls from them and `/connect google` says no. In a
+  private chat: that many messages a day each, a heads-up near the end and a code message at the limit; at most 30
+  new guests an hour; declined people stay ignored. Off by default, and then strangers get the waiting list.
 - The web server also answers `robots.txt`, `sitemap.xml`, `llms.txt`, `favicon.ico` and an IndexNow key file
   (a hash of `INKLING_PUBLIC_URL`), sends `www.` to the bare public address, and `/chat` redirects to a WhatsApp chat
   with the assistant (counted as `chat_link_opened` with its `?ref=` and referring site, when analytics is on).

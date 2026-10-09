@@ -54,6 +54,8 @@ export const config = {
   webModel: process.env.INKLING_WEB_MODEL ?? (provider === "anthropic" ? "claude-opus-5-5" : "gpt-5.4-mini"),
   // Optional analytics (src/analytics.ts, and visit counts on assets/home.html): a PostHog project key. Off when unset.
   posthogKey: process.env.INKLING_POSTHOG_KEY || undefined,
+  /** Messages a day a stranger can send in a private chat as a guest (guests.ts). 0, the default, means the waiting list instead. */
+  guestMessages: Math.max(0, Number(process.env.INKLING_GUEST_MESSAGES ?? 0) || 0),
   /** Groups with someone from the list in them answer everyone there unless an admin closes them. Off by default. */
   openGroups: process.env.INKLING_OPEN_GROUPS === "true",
   /** Where the source code is, for people who'd rather run their own copy (waiting list and guest messages). */

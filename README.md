@@ -77,6 +77,14 @@ people you choose. It only ever replies to people on your list.
 Anything that goes out in your name (a WhatsApp message from your number, an email, a calendar invite) or costs
 money is always shown to you first and only happens after you reply yes.
 
+### Guests (optional)
+
+Set `INKLING_GUEST_MESSAGES` (for example `50`) to let people who aren't on the list try it in a private chat, as a
+guest: chat, web search, reminders, lists, polls and images, but no Google, calendars, websites or morning briefs.
+Each guest gets that many messages a day; near the end it mentions that running your own copy is free (with
+`INKLING_SOURCE_URL`), and at the limit it says so and goes quiet until tomorrow. At most 30 new guests an hour, so a
+rush of new chats doesn't get the number banned. Off by default: strangers get the waiting list.
+
 ### Groups
 
 It answers when someone says its name, @mentions it, or replies to it, and only to people on the list. An admin can
@@ -279,9 +287,12 @@ Admins: `/people`, `/add Name +44...`, `/remove Name`, `/waitlist`, `/link whats
 
 ## Security model
 
-- **Strangers only get the waiting list.** It only works for numbers in `users.json` (and, in groups an admin has
-  opened, or with `INKLING_OPEN_GROUPS=true` any group with someone from the list in it, for anyone in that group). Others get a fixed reply written by code with their place in the queue; the
-  model never sees their messages. Adding people requires the number to be in an admin's own message, so a web page
+- **Strangers only get the waiting list**, unless you turn on guests or open groups. It only works for numbers in
+  `users.json` (and, in groups an admin has opened, or with `INKLING_OPEN_GROUPS=true` any group with someone from the
+  list in it, for anyone in that group). Others get a fixed reply written by code with their place in the queue; the
+  model never sees their messages. With `INKLING_GUEST_MESSAGES` set, strangers in a private chat are guests instead:
+  the model answers them, but they get no Google, calendars, websites or anything that acts as someone, and only that
+  many messages a day. Adding people requires the number to be in an admin's own message, so a web page
   or email can't add anyone, and approving someone from the waiting list always adds a new person, never another
   number for someone already listed.
 - **Nothing goes out as you without your yes.** Emails, Google invites, WhatsApp messages from your number, the final

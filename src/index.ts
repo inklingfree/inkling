@@ -1,9 +1,10 @@
 import { config, findUserByPhone, getUsers, phonesOf, type User } from "./config.js";
 import { respond, type Chat, type ChatActions, type Incoming } from "./agent.js";
 import { disconnectGoogle, googleAccounts, googleConfigured, googleConnectLink, serviceNames } from "./google.js";
+import { guestMessage, isGuest } from "./guests.js";
 import { keepAlive, keepPending, startedPending, takePending, waitForHandover } from "./handoff.js";
 import { log } from "./log.js";
-import { addPerson, listPeople, noteWaiting, removePerson, setUserLocation, takeWaitingFor, waitingList } from "./people.js";
+import { addPerson, isDeclined, listPeople, noteWaiting, removePerson, setUserLocation, takeWaitingFor, waitingList } from "./people.js";
 import { pollResults } from "./polls.js";
 import { addReminder, cancelReminder, listReminders, startReminders } from "./reminders.js";
 import { clearHistory, encryptStoredChats, groupOpen, loadMemory, setGroupOpen } from "./store.js";
@@ -81,8 +82,22 @@ function onMessage(msg: InboundMessage): void {
       .catch((err) => log.warn({ err }, "couldn't check whether a group is open"));
     return;
   } else if (!user) {
-    // Strangers go on the waiting list (an admin approves them with /waitlist). They're told what inkling is and
-    // their place in the queue, by code (never the model), and at most once a day so it doesn't turn into a chat.
+    // With INKLING_GUEST_MESSAGES set, strangers can try the assistant as a guest (guests.ts): everyday help, up to that
+    // many messages a day, then a pointer to running their own. Past the hourly cap on new guests, or their daily
+    // limit, code answers once instead. Anyone an admin declined is ignored.
+    if (config.guestMessages > 0 && msg.phone) {
+      if (isDeclined(msg.phone)) return;
+      const turn = guestMessage(msg.phone);
+      if (!turn.ok) {
+        if (turn.say) void answerLikeAPerson(msg, [turn.say], false).catch((err) => log.warn({ err }, "couldn't answer a guest"));
+        return;
+      }
+      const visitor = guest(msg);
+      if (turn.note) guestNotes.set(visitor.id, turn.note);
+      return enqueue(msg, visitor);
+    }
+    // Otherwise strangers go on the waiting list (an admin approves them with /waitlist). They're told what inkling is
+    // and their place in the queue, by code (never the model), and at most once a day so it doesn't turn into a chat.
     log.info({ phone: msg.phone, name: msg.senderName }, "waiting list message from a number not in users.json");
     const reply = msg.phone && msg.text ? noteWaiting(msg.phone, msg.senderName, msg.chatJid, msg.text) : undefined;
     if (reply) void answerLikeAPerson(msg, reply).catch((err) => log.warn({ err }, "couldn't answer someone on the waiting list"));
@@ -99,9 +114,9 @@ const between = (min: number, max: number) => min + Math.random() * (max - min);
  * to a couple of minutes, then a few seconds of typing before each bubble. If they were let in or declined in the
  * meantime, nothing is sent.
  */
-async function answerLikeAPerson(msg: InboundMessage, bubbles: string[]): Promise<void> {
+async function answerLikeAPerson(msg: InboundMessage, bubbles: string[], waiting = true): Promise<void> {
   await pause(between(30_000, 150_000));
-  if (!msg.phone || findUserByPhone(msg.phone) || !waitingList().some((w) => w.phone === msg.phone)) return;
+  if (!msg.phone || findUserByPhone(msg.phone) || (waiting && !waitingList().some((w) => w.phone === msg.phone))) return;
   await markRead(msg.key).catch(() => {});
   for (const text of bubbles) {
     await pause(between(1_500, 4_000));
@@ -111,6 +126,9 @@ async function answerLikeAPerson(msg: InboundMessage, bubbles: string[]): Promis
     await sendText(msg.chatJid, text);
   }
 }
+
+/** A note to send a guest after their next reply (the heads-up near their daily limit), by chat key. */
+const guestNotes = new Map<string, string>();
 
 function enqueue(msg: InboundMessage, user: User): void {
   const key = msg.group ? groupId(msg.chatJid) : user.id;
@@ -162,6 +180,12 @@ async function drain(key: string, queue: { busy: boolean; pending: Queued[] }): 
       const reply = await respond(chat, incoming, chatActions(chat, chatJid, last.key));
       stopTyping();
       await sendReply(chatJid, reply);
+      // A guest near their daily limit gets the heads-up after the reply.
+      const note = guestNotes.get(key);
+      if (note) {
+        guestNotes.delete(key);
+        await sendText(chatJid, note);
+      }
     } catch (err) {
       stopTyping();
       log.error({ chat: chat.id, err }, "failed to respond");
@@ -304,6 +328,7 @@ async function runCommand(chat: Chat, chatJid: string, command: string): Promise
     case "/connect gmail":
     case "/connect calendar":
       if (group) return "Message me privately for that, so your sign-in link stays with you.";
+      if (isGuest(user)) return `Google is for people on the list for now: someone who uses ${config.name} can add you. Or run your own ${config.name}, free and open source: ${config.sourceUrl}`;
       if (!googleConfigured()) return "Google isn't set up yet.";
       await sendGoogleLink(user, chatJid);
       return "";
