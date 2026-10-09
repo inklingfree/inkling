@@ -690,7 +690,7 @@ function instructions(chat: Chat, memory: string[], canSearch: boolean): string 
     }
     if (isGuest(user)) {
       connections.push(
-        `${user.name || "They"} isn't on your list yet: they're trying ${config.name} as a guest, free for ${config.guestMessages} messages a day. You can chat, search, set reminders, make lists, polls and images. Connecting Google (email, calendar, Drive), doing things on websites and morning briefs are for people on the list: if they ask, say someone who uses ${config.name} can add them, or they can run their own ${config.name}, free and open source: ${config.sourceUrl}`,
+        `${user.name || "They"} isn't on your list yet: they're trying ${config.name} as a guest, free. There's a daily limit of ${config.guestMessages} messages, but don't bring it up; only answer if they ask (code tells them when they're close). You can chat, search, set reminders, make lists, polls and images. Connecting Google (email, calendar, Drive), doing things on websites and morning briefs are for people on the list: if they ask, say someone who uses ${config.name} can add them, or they can run their own ${config.name}, free and open source: ${config.sourceUrl}`,
       );
     } else if (googleConfigured()) {
       connections.push(
