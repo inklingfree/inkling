@@ -107,10 +107,15 @@ export function countSearches(n: number): void {
   writeAtomic(path.join(config.dataDir, "usage.json"), JSON.stringify({ date: today, webSearches: searchesToday() + n }));
 }
 
-/** Group settings. `open` means the assistant replies to everyone in the group, not just people on the list. */
-export function groupOpen(groupId: string): boolean {
+/**
+ * Group settings. `open` means the assistant replies to everyone in the group, not just people on the list.
+ * Undefined until an admin sets it either way; index.ts decides the default (INKLING_OPEN_GROUPS).
+ */
+export function groupOpen(groupId: string): boolean | undefined {
   const file = path.join(userDir(groupId), "settings.json");
-  return existsSync(file) && (JSON.parse(readFileSync(file, "utf8")) as { open?: boolean }).open === true;
+  if (!existsSync(file)) return undefined;
+  const { open } = JSON.parse(readFileSync(file, "utf8")) as { open?: boolean };
+  return typeof open === "boolean" ? open : undefined;
 }
 
 export function setGroupOpen(groupId: string, open: boolean): void {

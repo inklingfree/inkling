@@ -81,7 +81,9 @@ money is always shown to you first and only happens after you reply yes.
 
 It answers when someone says its name, @mentions it, or replies to it, and only to people on the list. An admin can
 say "inkling speak to everyone" (or `/open`) to let anyone in that group talk to it there, and "inkling only talk to
-people on your list" (or `/close`) to undo it. Groups have their own memory, email and personal WhatsApp tools are
+people on your list" (or `/close`) to undo it. With `INKLING_OPEN_GROUPS=true`, a group with someone from the list in it
+is open from the start (an admin can still `/close` it); a group with nobody from the list always stays closed.
+Groups have their own memory, email and personal WhatsApp tools are
 never available there, and calendars only share when people are busy, never what the events are.
 
 ## How it works
@@ -278,7 +280,7 @@ Admins: `/people`, `/add Name +44...`, `/remove Name`, `/waitlist`, `/link whats
 ## Security model
 
 - **Strangers only get the waiting list.** It only works for numbers in `users.json` (and, in groups an admin has
-  opened, for anyone in that group). Others get a fixed reply written by code with their place in the queue; the
+  opened, or with `INKLING_OPEN_GROUPS=true` any group with someone from the list in it, for anyone in that group). Others get a fixed reply written by code with their place in the queue; the
   model never sees their messages. Adding people requires the number to be in an admin's own message, so a web page
   or email can't add anyone, and approving someone from the waiting list always adds a new person, never another
   number for someone already listed.

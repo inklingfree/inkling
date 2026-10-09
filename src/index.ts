@@ -35,6 +35,14 @@ function guest(msg: InboundMessage): User {
 
 const groupId = (chatJid: string) => `group-${chatJid.split("@")[0].replace(/[^a-z0-9-]/gi, "")}`;
 
+/** Someone on the list is in this group. Open-by-default only ever applies then, so a stranger can't add the assistant to their own group to skip the waiting list. */
+const hasListedMember = (phones: string[]) => getUsers().some((u) => phonesOf(u).some((p) => phones.includes(p)));
+
+/** Whether everyone in a group can talk to the assistant: what an admin set there, or else INKLING_OPEN_GROUPS when someone on the list is in it. */
+async function groupIsOpen(chatJid: string): Promise<boolean> {
+  return groupOpen(groupId(chatJid)) ?? (config.openGroups && hasListedMember((await groupInfo(chatJid)).phones));
+}
+
 /** Message ids already handled, since one can come twice around a restart (kept for later, and redelivered). */
 const seenIds = new Set<string>();
 /** Set when a newer copy is taking over (handoff.ts): messages are kept for it instead of answered here. */
@@ -58,14 +66,19 @@ function onMessage(msg: InboundMessage): void {
   }
 
   if (msg.group) {
-    // In a group an admin has opened, people who aren't on the list can talk to the assistant too (in that group only).
-    const speaker = user ?? (groupOpen(groupId(msg.chatJid)) ? guest(msg) : undefined);
-    if (!msg.group.addressed || !speaker) {
+    const context = () => {
       if (msg.text) groupContext.set(msg.chatJid, [...(groupContext.get(msg.chatJid) ?? []), `${user?.name ?? msg.senderName}: ${msg.text}`].slice(-20));
-      if (msg.group.addressed) log.info({ phone: msg.phone }, "ignoring group message from a number not in users.json");
-      return;
-    }
-    enqueue(msg, speaker);
+    };
+    if (!msg.group.addressed) return context();
+    if (user) return enqueue(msg, user);
+    // In an open group, people who aren't on the list can talk to the assistant too (in that group only).
+    void groupIsOpen(msg.chatJid)
+      .then((open) => {
+        if (open) return enqueue(msg, guest(msg));
+        context();
+        log.info({ phone: msg.phone }, "ignoring group message from a number not in users.json");
+      })
+      .catch((err) => log.warn({ err }, "couldn't check whether a group is open"));
     return;
   } else if (!user) {
     // Strangers go on the waiting list (an admin approves them with /waitlist). They're told what inkling is and
@@ -162,7 +175,8 @@ async function groupChat(key: string, chatJid: string, user: User): Promise<Chat
   const info = await groupInfo(chatJid);
   const members = getUsers().filter((u) => phonesOf(u).some((p) => info.phones.includes(p)));
   const listed = members.length ? members : getUsers().filter((u) => u.id === user.id);
-  return { id: key, user, group: { name: info.name, members: listed, recent: groupContext.get(chatJid) ?? [], open: groupOpen(key) } };
+  const open = groupOpen(key) ?? (config.openGroups && hasListedMember(info.phones));
+  return { id: key, user, group: { name: info.name, members: listed, recent: groupContext.get(chatJid) ?? [], open } };
 }
 
 async function sendReply(chatJid: string, reply: string): Promise<void> {
