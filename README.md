@@ -225,7 +225,9 @@ port 8787 (for example `caddy reverse-proxy --from inkling.example.com --to loca
 **Anywhere else** (a small VM, Fly.io, Railway, Render, Azure App Service with `/home`, and so on):
 
 - Set `INKLING_PUBLIC_URL` to its public HTTPS address, `INKLING_HOST=0.0.0.0` (it listens on `PORT` if the host
-  sets one), and `INKLING_DATA_DIR` to a persistent directory. Run one copy only.
+  sets one), and `INKLING_DATA_DIR` to a persistent directory. Run one copy only. If your host starts the new
+  version before stopping the old one (Azure App Service does), they hand WhatsApp over without dropping messages:
+  the old copy finishes its replies, lets go, and the new one answers anything that came in meanwhile.
 - Copy `data/` (including the WhatsApp session in `data/auth/`) and the same `INKLING_SECRET_KEY` when you move it.
 - `GET /health` returns the running commit (from a `version.json` written at deploy time) and whether WhatsApp is
   connected, which is handy for deploy checks.

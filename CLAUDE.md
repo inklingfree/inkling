@@ -146,6 +146,15 @@ photo when it connects (once per image), and `INKLING_NAME` its profile name.
   `INKLING_HOST=0.0.0.0` and `INKLING_PUBLIC_URL`. Every tool call logs `"msg":"tool"` with its name (never its
   arguments).
 
+- Deploys don't drop messages (`handoff.ts`). Hosts like App Service start the new copy while the old one still runs,
+  sharing the data folder, but only one copy can hold WhatsApp. The running copy writes `handoff-alive.json` every
+  2 seconds; a new copy (on another host name) that sees it writes `handoff-request.json` and waits up to a minute.
+  The old copy stops starting replies, finishes the ones in progress (45 seconds at most), lets go of WhatsApp
+  (`releaseWhatsApp`) and writes `handoff-released.json`; then the new one connects. Messages stay in
+  `pending.sealed` from arrival until their turn starts, and a new copy answers what's left (under 30 minutes old).
+  Messages sent while no copy is connected come from WhatsApp as recent "append" upserts on reconnect, and are
+  answered too (`whatsapp.ts`). With one copy at a time (Docker, a VM), none of this waits.
+
 ## Things learned the hard way
 
 - The linked personal WhatsApp must stay in its own process. In-process, its sync starved a single-core server:

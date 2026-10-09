@@ -1,6 +1,7 @@
 import { config, findUserByPhone, getUsers, phonesOf, type User } from "./config.js";
 import { respond, type Chat, type ChatActions, type Incoming } from "./agent.js";
 import { disconnectGoogle, googleAccounts, googleConfigured, googleConnectLink, serviceNames } from "./google.js";
+import { keepAlive, keepPending, startedPending, takePending, waitForHandover } from "./handoff.js";
 import { log } from "./log.js";
 import { addPerson, listPeople, noteWaiting, removePerson, setUserLocation, takeWaitingFor, waitingList } from "./people.js";
 import { pollResults } from "./polls.js";
@@ -8,7 +9,7 @@ import { addReminder, cancelReminder, listReminders, startReminders } from "./re
 import { clearHistory, encryptStoredChats, groupOpen, loadMemory, setGroupOpen } from "./store.js";
 import { bubbles } from "./text.js";
 import { adminLink, startWeb } from "./web.js";
-import { botPhone, groupInfo, link, markRead, nameCall, react, resendMedia, sendImage, sendPoll, sendText, sendVoiceNote, setPersonLookup, showTyping, startWhatsApp, type InboundMessage } from "./whatsapp.js";
+import { botPhone, groupInfo, link, markRead, releaseWhatsApp, nameCall, react, resendMedia, sendImage, sendPoll, sendText, sendVoiceNote, setPersonLookup, showTyping, startWhatsApp, type InboundMessage } from "./whatsapp.js";
 import { speak } from "./voice.js";
 import { startScheduler, type RunJob } from "./schedule.js";
 import { startChanges } from "./changes.js";
@@ -34,7 +35,18 @@ function guest(msg: InboundMessage): User {
 
 const groupId = (chatJid: string) => `group-${chatJid.split("@")[0].replace(/[^a-z0-9-]/gi, "")}`;
 
+/** Message ids already handled, since one can come twice around a restart (kept for later, and redelivered). */
+const seenIds = new Set<string>();
+/** Set when a newer copy is taking over (handoff.ts): messages are kept for it instead of answered here. */
+let handingOver = false;
+
 function onMessage(msg: InboundMessage): void {
+  if (msg.key.id) {
+    if (seenIds.has(msg.key.id)) return;
+    seenIds.add(msg.key.id);
+    if (seenIds.size > 5000) seenIds.delete(seenIds.values().next().value!);
+  }
+  if (handingOver) return keepPending(msg);
   const user = msg.phone ? findUserByPhone(msg.phone) : undefined;
 
   // Auto-replies fire on every message in a chat that has them (groups: anyone's message, addressed or not).
@@ -92,13 +104,27 @@ function enqueue(msg: InboundMessage, user: User): void {
   const queue = queues.get(key) ?? { busy: false, pending: [] };
   queues.set(key, queue);
   queue.pending.push({ msg, user });
+  keepPending(msg); // on disk until its turn starts, so a restart before then doesn't lose it
   if (!queue.busy) void drain(key, queue);
+}
+
+/**
+ * A newer copy of inkling wants WhatsApp (a deploy): stop starting replies, finish the ones in progress (45 seconds
+ * at most), then let go. Messages not started yet stay on disk for the new copy to answer.
+ */
+async function handOver(): Promise<void> {
+  handingOver = true;
+  log.info("a newer copy is starting: finishing replies in progress, then handing over WhatsApp");
+  const until = Date.now() + 45_000;
+  while ([...queues.values()].some((q) => q.busy) && Date.now() < until) await pause(500);
+  releaseWhatsApp();
 }
 
 async function drain(key: string, queue: { busy: boolean; pending: Queued[] }): Promise<void> {
   queue.busy = true;
-  while (queue.pending.length) {
+  while (queue.pending.length && !handingOver) {
     const batch = queue.pending.splice(0);
+    startedPending(batch.map((b) => b.msg));
     const { msg: last, user } = batch.at(-1)!;
     const { chatJid } = last;
     await markRead(last.key).catch(() => {});
@@ -193,7 +219,7 @@ async function linkPersonal(user: User): Promise<void> {
 
 /** Runs a scheduled job (morning brief, dates, watches, travel) in a person's private chat or a group. */
 const runJob: RunJob = async (target, prompt) => {
-  if (!link.connected) return;
+  if (!link.connected || handingOver) return;
   const admin = getUsers().find((u) => u.admin) ?? getUsers()[0];
   const chatJid = target.kind === "person" ? `${target.user.phone}@s.whatsapp.net` : target.chatJid;
   const key = target.kind === "person" ? target.user.id : target.chatId;
@@ -372,9 +398,20 @@ const users = getUsers();
 log.info({ users: users.map((u) => u.id), model: config.model, voice: config.transcribeModel }, "starting inkling");
 startWeb();
 
+// If an older copy is still running (a deploy), it finishes its replies and hands WhatsApp over first.
+await waitForHandover();
+
 // Text the owner once per start (not on every reconnect), so a finished deploy announces itself.
 let announced = false;
+let replayed = false;
 await startWhatsApp(onMessage, () => {
+  keepAlive(handOver);
+  // Once per start, answer what was left from before: messages the last copy received but didn't start. (Ones
+  // sent while no copy was connected arrive from WhatsApp itself, see whatsapp.ts.)
+  if (!replayed) {
+    replayed = true;
+    setTimeout(() => takePending().forEach(onMessage), 3000);
+  }
   const owner = config.announceTo && getUsers().find((u) => u.id === config.announceTo);
   if (announced || !owner) return;
   announced = true;

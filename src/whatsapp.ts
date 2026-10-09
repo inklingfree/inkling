@@ -21,6 +21,7 @@ import {
 } from "baileys";
 import qrcode from "qrcode-terminal";
 import { config } from "./config.js";
+import { REPLAY_WITHIN_MS } from "./handoff.js";
 import type { Incoming } from "./agent.js";
 import { baileysLog, log } from "./log.js";
 import { describeLocation } from "./location.js";
@@ -44,6 +45,8 @@ export type OnConnected = () => void;
 const IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
 
 let sock: WASocket | undefined;
+/** Set once this copy hands WhatsApp to a newer one (handoff.ts), so it doesn't reconnect. */
+let released = false;
 /** The current linking QR code (while not linked), shown on inkling's local-only /whatsapp page. */
 export const link: { qr?: string; connected: boolean } = { connected: false };
 // WhatsApp asks for recently sent messages again when a recipient's device fails to decrypt one.
@@ -89,6 +92,7 @@ export async function startWhatsApp(onMessage: OnMessage, onConnected?: OnConnec
         log.error(`WhatsApp logged this device out. Delete ${path.join(config.dataDir, "auth")} and restart to link again.`);
         process.exit(1);
       }
+      if (released) return;
       // Another copy of inkling connected with the same session (e.g. the new container during a deploy).
       // The newest connection wins; this one stands down instead of fighting it, which WhatsApp dislikes.
       if (code === DisconnectReason.connectionReplaced) {
@@ -101,8 +105,12 @@ export async function startWhatsApp(onMessage: OnMessage, onConnected?: OnConnec
   });
 
   socket.ev.on("messages.upsert", ({ messages, type }) => {
-    if (type !== "notify") return;
+    // "notify" is a message arriving now. "append" is mostly history, but a recent one is a message that came while
+    // no copy was connected (a restart), delivered on reconnect: answer those too.
+    const recent = (m: WAMessage) => Number(m.messageTimestamp) * 1000 > Date.now() - REPLAY_WITHIN_MS;
+    if (type !== "notify" && type !== "append") return;
     for (const m of messages) {
+      if (type === "append" && !recent(m)) continue;
       parse(socket, m)
         .then((msg) => msg && onMessage(msg))
         .catch((err) => log.error({ err }, "failed to read incoming message"));
@@ -299,6 +307,13 @@ export function setPersonLookup(lookup: typeof person): void {
 }
 const voterName = (phone: string | undefined, pushName: string | null | undefined) =>
   person(phone)?.name || pushName || (phone ? `+${phone}` : "someone");
+
+/** Lets go of WhatsApp for a newer copy of inkling (handoff.ts): closes the connection and doesn't reconnect. */
+export function releaseWhatsApp(): void {
+  released = true;
+  link.connected = false;
+  sock?.end(undefined);
+}
 
 /** The assistant's own number (digits), once connected. */
 export const botPhone = () => (sock?.user?.id ? jidDecode(sock.user.id)?.user : undefined);
