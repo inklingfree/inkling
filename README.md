@@ -297,7 +297,9 @@ Admins: `/people`, `/add Name +44...`, `/remove Name`, `/waitlist`, `/link whats
   number for someone already listed.
 - **Nothing goes out as you without your yes.** Emails, Google invites, WhatsApp messages from your number, the final
   step on a website, and changes to its own code are drafted, shown to you word for word by code, and only happen
-  after you reply yes in a new message (within 30 minutes). The model can't skip this: it's enforced in code.
+  after you reply yes in a new message (within 30 minutes). The model can't skip this: it's enforced in code. The one
+  exception is opt-in: with `INKLING_GROUP_INVITES_NOW=true`, Google invites asked for in a group go straight away,
+  but only for the asker's own event, only to people on the list in that group or to emails posted there.
 - **Content is not instructions.** Emails, web pages, documents and other people's messages are passed to the model
   as information, and a prompt injection in them can't trigger a send on its own because of the rule above.
 - **Encrypted at rest** with `INKLING_SECRET_KEY` (AES-256-GCM): chat history, memory, Google refresh tokens, the

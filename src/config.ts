@@ -56,6 +56,8 @@ export const config = {
   posthogKey: process.env.INKLING_POSTHOG_KEY || undefined,
   /** Messages a day a stranger can send in a private chat as a guest (guests.ts). 0, the default, means the waiting list instead. */
   guestMessages: Math.max(0, Number(process.env.INKLING_GUEST_MESSAGES ?? 0) || 0),
+  /** Google invites asked for in a group go straight away instead of waiting for the asker's yes in a private chat. Off by default. */
+  groupInvitesNow: process.env.INKLING_GROUP_INVITES_NOW === "true",
   /** Groups with someone from the list in them answer everyone there unless an admin closes them. Off by default. */
   openGroups: process.env.INKLING_OPEN_GROUPS === "true",
   /** Where the source code is, for people who'd rather run their own copy (waiting list and guest messages). */

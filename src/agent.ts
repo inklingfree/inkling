@@ -738,10 +738,10 @@ ${
   isGuest(user)
     ? ""
     : group
-    ? `- Google invites by email: when someone asks to invite people to a plan in their own calendar, use calendar_invite with the emails people posted in this chat. If someone's email isn't here, ask them to post it; you can't look addresses up in a group. Find the event by its title and day (or the event id from calendar_add_event); if it isn't in their calendar yet, add it first with calendar_add_event. The person who asked gets it in their private chat with you, and it's only sent after their yes there; say that in a few words.`
+    ? `- Plans for everyone: when someone here asks to add the plan to everyone's calendar or to send everyone an invite, call calendar_add_event once with who everyone, taking the title, day, time and place from the conversation; put the venue's name and area or address as the location, and leave notes empty unless there's a real detail like a booking reference (never who's busy). ${config.groupInvitesNow ? "It goes in the asker's calendar and everyone here who has connected Google gets a Google invite straight away." : "It goes in the calendar of everyone here who has connected Google."} Put any emails people posted here for others in its guests in the same call (never a separate calendar_invite at the same time); ${config.groupInvitesNow ? "they're invited straight away too" : "those get an invite after the asker's yes in their private chat with you; say that in a few words"}. If someone has neither connected Google nor posted an email, say they can post it; you can't look addresses up in a group. To invite people by email to a plan already in the asker's calendar, use calendar_invite with the emails people posted here, finding the event by its title and day or its event id. If the plan is already in their calendar from earlier in this chat (your notes say "added ... (event <id>)"), don't add it again: change it with calendar_update_event and invite anyone missing with calendar_invite using that event id. Events someone else made can't be changed or shared by the asker.`
     : "- When they give someone's email for a plan (or ask for a Google invite), invite them to the event in their Google Calendar with calendar_invite, so Google emails the invite; add the event first if it isn't there. It's shown to them first and sent after their yes with confirm_send. gmail_find_email looks up an address if they only give a name."
 }
-${isGuest(user) ? "" : "- To change an event that's already in a calendar (add the location, move it, rename it), use calendar_update_event. Don't add a new event for it.\n"}- For any other email, use send_email; it's also shown first and sent after their yes with confirm_send.${
+${isGuest(user) ? "" : "- To change an event that's already in a calendar (add the location, move it, rename it), use calendar_update_event. Don't add a new event for it. Change only what they asked; keep the title unless they clearly ask to rename it (voice notes can mishear names).\n"}- For any other email, use send_email; it's also shown first and sent after their yes with confirm_send.${
   !group && webEnabled()
     ? `\n- You have your own web browser (web_task) for doing things on websites: searching a site, filling forms, booking, ordering, checking in, cancelling. You can't sign in for them: web_task or web_signin sends them a link to do it themselves. Final steps always come to them with a screenshot for a yes. Buying also needs their spending limit (${user.spendLimit ? `now ${user.spendLimit} per purchase` : "not set, so buying is off until they set one"}) and a way to pay: they sign in once (web_signin) to Shop Pay (shop.app, works on any Shopify store), PayPal or Amazon, where their card is saved; you never see or type card numbers. wallet shows their setup. For a quick recommendation, a link is still better than the browser.`
     : ""
@@ -1449,41 +1449,61 @@ async function runTool(
     }
     // Never offered to guests; refused here too in case a call gets through.
     if (call.name.startsWith("calendar_") && isGuest(chat.user)) return output("Calendars are only for people on the list.");
-    if (call.name === "calendar_invite") {
-      // Google emails the invite from their account, so it always waits for their yes (then confirm_send), and when
-      // asked for in a group, that yes comes from their private chat.
-      const guests = (args.guests as { name: string | null; email: string }[] | undefined) ?? [];
-      if (!guests.length) return output("Who should be invited? Give their email addresses.");
+    /**
+     * Google invites by email to one of the asker's events. Google emails them from the asker's account, so it waits
+     * for their yes (then confirm_send); asked for in a group, that yes comes from their private chat, unless
+     * INKLING_GROUP_INVITES_NOW sends group invites straight away (still only to addresses people posted in that group,
+     * and only for the asker's own event).
+     */
+    const inviteByEmail = async (args: Record<string, unknown>): Promise<string> => {
+      const guests = ((args.guests as { name: string | null; email: string }[] | undefined) ?? []).filter((g) => g.email?.trim());
+      if (!guests.length) return "Who should be invited? Give their email addresses.";
       if (!googleAccounts(chat.user.id).some((a) => a.calendar)) {
-        return output(`${chat.user.name} hasn't connected Google Calendar, so there's no event of theirs to invite people to. They can send /connect google in a private chat with you.`);
+        return `${chat.user.name} hasn't connected Google Calendar, so there's no event of theirs to invite people to. They can send /connect google in a private chat with you.`;
       }
       const found = chat.group ? await resolveEvent(chat.user, args) : await findEvent(chat.user, String(args.event_id), args.account);
       if (!found) {
-        return output(
-          chat.group
-            ? `No event like that in ${chat.user.name}'s calendar${typeof args.date === "string" ? ` on ${args.date}` : ""}. Add it first with calendar_add_event (who: me), then invite.`
-            : `No event ${args.event_id} in their calendar. Use calendar_upcoming to find it.`,
-        );
+        return chat.group
+          ? `No event like that in ${chat.user.name}'s calendar${typeof args.date === "string" ? ` on ${args.date}` : ""}. Add it with calendar_add_event, putting these emails in its guests.`
+          : `No event ${args.event_id} in their calendar. Use calendar_upcoming to find it.`;
       }
       if (found.event.organizer && !found.event.organizer.self) {
-        return output(`That event was made by ${found.event.organizer.displayName ?? found.event.organizer.email ?? "someone else"}, so only they can invite people to it.`);
+        const owner = found.event.organizer.displayName ?? found.event.organizer.email ?? "someone else";
+        return `"${found.event.summary ?? "That event"}" was made by ${owner}, so only they can invite people to it. If ${chat.user.name} has their own event for this plan, use its event id.`;
       }
       if (chat.group) {
         // Only addresses people posted here themselves: never looked up, never from anyone's email or contacts.
         const posted = groupWords(chat, said).toLowerCase();
         const unknown = guests.filter((g) => !posted.includes(g.email.trim().toLowerCase()));
-        if (unknown.length) return output(`${unknown.map((g) => g.name ?? g.email).join(", ")}: that email wasn't posted in this chat. Ask them to post it here.`);
+        if (unknown.length) return `${unknown.map((g) => g.name ?? g.email).join(", ")}: that email wasn't posted in this chat. Ask them to post it here.`;
+      }
+      if (chat.group && config.groupInvitesNow) {
+        const result = await callCalendarTool("calendar_invite", { event_id: found.event.id, account: found.email, guests }, chat.user, undefined);
+        if (result.startsWith("Invited")) {
+          did.push(result.split(". ")[0]);
+          log.info({ chat: chat.id }, "sent calendar invite");
+        }
+        return result;
       }
       const list = guests.map((g) => (g.name ? `${g.name} (${g.email.trim()})` : g.email.trim())).join(", ");
-      return output(
-        await offerDraft({
-          kind: "invite",
-          to: found.event.id!,
-          name: list,
-          text: describeEvent(found.event, chat.user.timezone),
-          invite: { event_id: found.event.id, account: found.email, guests },
-        }),
-      );
+      return offerDraft({
+        kind: "invite",
+        to: found.event.id!,
+        name: list,
+        text: describeEvent(found.event, chat.user.timezone),
+        invite: { event_id: found.event.id, account: found.email, guests },
+      });
+    };
+    if (call.name === "calendar_invite") return output(await inviteByEmail(args));
+    if (call.name === "calendar_add_event" && chat.group) {
+      // Adding a plan and inviting people by email in one step, so the invite goes to the event just made (two
+      // separate calls can run together, and then the invite looks for the event before it exists).
+      const result = await callCalendarTool(call.name, args, chat.user, chat.group.members, chat.id);
+      if (/^added/.test(result)) did.push(result.replace(/\. Guests see.*$/, "").slice(0, 200));
+      const made = /\(event ([^)\s]+)\)/.exec(result)?.[1];
+      const guests = (args.guests as unknown[] | undefined) ?? [];
+      if (!made || !guests.length) return output(result);
+      return output(`${result}\n\nEmail invites: ${await inviteByEmail({ event_id: made, guests })}`);
     }
     if (call.name.startsWith("calendar_")) {
       const result = await callCalendarTool(call.name, args, chat.user, chat.group?.members, chat.id);

@@ -79,8 +79,13 @@ photo when it connects (once per image), and `INKLING_NAME` its profile name.
   Google invite to their event, after their yes.
 - Invites asked for in a group: the preview goes to the asker's private chat (`sendPrivate`, and into that chat's
   history) and the yes must come from there. Guest emails must appear in what people wrote in the group
-  (`groupWords`), never looked up. Only the asker's own events (`resolveEvent`, by title and day), and only ones
-  they organise.
+  (`groupWords`), never looked up. Only the asker's own events (`resolveEvent`, by title and day; on a tie their own
+  event, then the newest), and only ones they organise. In a group, `calendar_add_event` takes the posted emails
+  (`guests`) and invites them to the new event in the same step.
+- `INKLING_GROUP_INVITES_NOW=true` (off by default) skips that yes in groups: "add it to everyone's calendar" makes
+  one event in the asker's calendar and invites everyone in the group who's on the list and has connected Google
+  (`sendUpdates=all`, `guestsCanSeeOtherGuests: false`), and posted emails are invited straight away. Without it,
+  "everyone" puts a quiet copy in each connected member's calendar, and email invites wait for the asker's yes.
 - "Add the location" or "move it" changes the existing event (`calendar_update_event`, no emails sent), never adds a
   second one. Events the assistant makes carry `inklingChat`/`inklingPlan` private properties, so copies added for a
   whole group change together.

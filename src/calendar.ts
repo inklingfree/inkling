@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type OpenAI from "openai";
-import type { User } from "./config.js";
+import { config, type User } from "./config.js";
 import { GoogleDisconnected, googleAccounts, googleApi } from "./google.js";
 import { zonedToUtc } from "./time.js";
 
@@ -18,6 +18,7 @@ type GEvent = {
   location?: string;
   description?: string;
   organizer?: { email?: string; displayName?: string; self?: boolean };
+  created?: string;
   /** inklingChat and inklingPlan on events inkling made; copies made for a whole group share the plan. */
   extendedProperties?: { private?: Record<string, string> };
   status?: string;
@@ -82,8 +83,10 @@ export function calendarTools(inGroup: boolean): OpenAI.Responses.FunctionTool[]
             name: "calendar_invite",
             description:
               "Invite people by email to an event in the asker's own Google Calendar, so Google emails them an invite to the " +
-              "same event. Only emails people posted in this chat. Nothing is sent yet: the asker gets it in their private chat " +
-              "with you and it's sent after their yes there.",
+              "same event. Only emails people posted in this chat. " +
+              (config.groupInvitesNow
+                ? "It's sent straight away."
+                : "Nothing is sent yet: the asker gets it in their private chat with you and it's sent after their yes there."),
             strict: true,
             parameters: {
               type: "object",
@@ -143,7 +146,9 @@ export function calendarTools(inGroup: boolean): OpenAI.Responses.FunctionTool[]
       type: "function",
       name: "calendar_add_event",
       description: inGroup
-        ? 'Add an event to Google Calendar. who="everyone" adds it for every group member with a connected calendar; who="me" only for the person asking.'
+        ? config.groupInvitesNow
+          ? 'Add an event to Google Calendar. who="everyone": it goes in the asker\'s calendar and everyone else in this group who has connected Google gets a real Google invite to it (one shared event; it shows in their calendar with a notification). who="me": only the asker\'s calendar.'
+          : 'Add an event to Google Calendar. who="everyone" adds it for every group member with a connected calendar; who="me" only for the person asking.'
         : "Add an event to the user's Google Calendar.",
       strict: true,
       parameters: {
@@ -155,10 +160,18 @@ export function calendarTools(inGroup: boolean): OpenAI.Responses.FunctionTool[]
           location: { type: ["string", "null"] },
           notes: { type: ["string", "null"] },
           ...(inGroup
-            ? { who: { type: "string", enum: ["everyone", "me"] } }
+            ? {
+                who: { type: "string", enum: ["everyone", "me"] },
+                guests: {
+                  ...guests,
+                  description:
+                    "Emails people posted in this chat for anyone who should be invited but hasn't connected Google; empty if none. They get a Google invite to this event " +
+                    (config.groupInvitesNow ? "straight away." : "after the asker's yes in their private chat, like calendar_invite."),
+                },
+              }
             : { account: { type: ["string", "null"], description: "Which connected Google account's calendar, if they have several. Null for their main one." } }),
         },
-        required: ["title", "start", "end", "location", "notes", inGroup ? "who" : "account"],
+        required: ["title", "start", "end", "location", "notes", ...(inGroup ? ["who", "guests"] : ["account"])],
         additionalProperties: false,
       },
     },
@@ -205,8 +218,6 @@ export async function callCalendarTool(
         return (lines.join("\n") || "Nobody here has connected a calendar.") + notConnected;
       }
       case "calendar_add_event": {
-        const targets = members && args.who === "everyone" ? connected : connected.filter((u) => u.id === asker.id);
-        if (!targets.length) return `${asker.name} hasn't connected Google Calendar yet.${notConnected}`;
         const allDay = !String(args.start).includes("T");
         const event = {
           summary: String(args.title),
@@ -217,6 +228,22 @@ export async function callCalendarTool(
           // So a later "add the location" can change every copy made here, not just the asker's.
           extendedProperties: { private: { inklingChat: chatId, inklingPlan: randomUUID().slice(0, 8) } },
         };
+        // With INKLING_GROUP_INVITES_NOW, "everyone" in a group is one event in the asker's calendar with the others
+        // invited, so Google sends each a real invite (it lands in their calendar with a notification) and it stays one
+        // shared event. Only people in this group who are on the list and connected Google, at that address; guests
+        // can't see each other's addresses. Without it, each connected member gets their own copy, quietly.
+        if (config.groupInvitesNow && members && args.who === "everyone" && calendars(asker).length) {
+          const invitees = connected.filter((u) => u.id !== asker.id).map((u) => ({ name: u.name, email: calendars(u)[0] }));
+          const made = (await googleApi(asker.id, calendars(asker)[0], `${EVENTS}?sendUpdates=all`, {
+            method: "POST",
+            body: JSON.stringify({ ...event, attendees: invitees.map((g) => ({ email: g.email, displayName: g.name })), guestsCanSeeOtherGuests: false }),
+          })) as GEvent;
+          const invited = invitees.length ? ` and invited ${invitees.map((g) => g.name).join(", ")} (Google sent each of them an invite)` : "";
+          const left = missing.length ? `\nNot invited, since they haven't connected Google: ${missing.join(", ")}. They can send /connect google in a private chat with you, or post their email here to be invited.` : "";
+          return `added to ${asker.name}'s calendar (event ${made.id})${invited}.${left}`;
+        }
+        const targets = members && args.who === "everyone" ? connected : connected.filter((u) => u.id === asker.id);
+        if (!targets.length) return `${asker.name} hasn't connected Google Calendar yet.${notConnected}`;
         // In a private chat they can pick which of their calendars; otherwise each person's first one.
         const wanted = typeof args.account === "string" ? args.account.trim().toLowerCase() : "";
         const results = await Promise.all(
@@ -343,12 +370,13 @@ export async function resolveEvent(user: User, args: Record<string, unknown>): P
   const wanted = words(typeof args.title === "string" ? args.title : "");
   const from = zonedToUtc(date, user.timezone);
   const events = await listEvents(user, from, new Date(from.getTime() + 86_400_000));
-  let best: (GEvent & { account: string }) | undefined;
-  let bestScore = 0;
-  for (const e of events) {
-    const score = [...words(e.summary ?? "")].filter((w) => wanted.has(w)).length;
-    if (score > bestScore) [best, bestScore] = [e, score];
-  }
+  // Most words in common first; on a tie, their own event (one someone else invited them to can't be changed or
+  // shared by them), then the newest, which is usually the one just made in this chat.
+  const own = (e: GEvent) => (!e.organizer || e.organizer.self ? 1 : 0);
+  const best = events
+    .map((e) => ({ e, score: [...words(e.summary ?? "")].filter((w) => wanted.has(w)).length }))
+    .filter((c) => c.score > 0)
+    .sort((a, b) => b.score - a.score || own(b.e) - own(a.e) || (b.e.created ?? "").localeCompare(a.e.created ?? ""))[0]?.e;
   return best && { email: best.account, event: best };
 }
 
