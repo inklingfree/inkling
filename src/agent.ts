@@ -120,6 +120,8 @@ export type ChatActions = {
   /** Sends one message to the person's own private chat with the assistant (confirmations asked for in a group). */
   sendPrivate(text: string): Promise<void>;
   sendImage(image: Buffer, caption?: string): Promise<void>;
+  /** Sends text to this chat as a .txt file. */
+  sendFile(data: Buffer, fileName: string, caption?: string): Promise<void>;
   resendMedia(which: { replied: boolean; kind?: string; from?: string }): Promise<string>;
   /** Starts linking the person's own WhatsApp (sends them a pairing code). */
   linkPersonal(): Promise<void>;
@@ -271,6 +273,40 @@ const resendTool: OpenAI.Responses.FunctionTool = {
   },
 };
 
+const fileTool: OpenAI.Responses.FunctionTool = {
+  type: "function",
+  name: "send_file",
+  description:
+    "Send text to this chat as a .txt file, for anything too long for a few messages: a full transcript, notes, a long " +
+    "write-up. For the transcript of a voice note or audio they sent, set latest_voice_note and leave text null: it's " +
+    "copied exactly, so you don't retype it.",
+  strict: true,
+  parameters: {
+    type: "object",
+    properties: {
+      file_name: { type: "string", description: 'Short name, e.g. "transcript".' },
+      latest_voice_note: { type: "boolean", description: "True to send the latest voice note's transcript." },
+      text: { type: ["string", "null"], description: "The text to send, or null with latest_voice_note." },
+      caption: { type: ["string", "null"] },
+    },
+    required: ["file_name", "latest_voice_note", "text", "caption"],
+    additionalProperties: false,
+  },
+};
+
+/** The newest voice note's transcript in this chat: this turn first, then the group's recent chat, then history. */
+function latestTranscript(chat: Chat, said: string): string | undefined {
+  const sources = [said, ...[...(chat.group?.recent ?? [])].reverse(), ...loadHistory(chat.id).filter((t) => t.role === "user").map((t) => String(t.content)).reverse()];
+  for (const text of sources) {
+    const found = [...text.matchAll(/\(voice note\) ([\s\S]*?)(?=\n\[[^\]\n]+\] |$)/g)].at(-1)?.[1]?.trim();
+    if (found) return found;
+  }
+  return undefined;
+}
+
+// Google's own files go through its API, and what people send is never put on a public host.
+const NOT_FOR_BROWSER = /\b(docs|drive|sheets)\.google\.com\b|\bgoogle (doc|docs|sheet|sheets|drive)\b|\b(transfer\.sh|wetransfer|file\.io|0x0\.st|catbox|pastebin|hastebin|gofile)\b/i;
+
 const autoReplyTools: OpenAI.Responses.FunctionTool[] = [
   {
     type: "function",
@@ -404,7 +440,8 @@ const webTools: OpenAI.Responses.FunctionTool[] = [
     description:
       "Do something on a website for them in your own browser: find and fill things in, book, order, check in, cancel, " +
       "compare. It reports back. Sign-ins come to them as a link; final steps (pay, book, submit) come to them for a yes. " +
-      "Set new_task false to carry on the current one (after they sign in, or with their answer).",
+      "Set new_task false to carry on the current one (after they sign in, or with their answer). Never for Google Docs, " +
+      "Sheets or Drive (use the Google tools or send_file) or for uploading their things to file-sharing sites.",
     strict: true,
     parameters: {
       type: "object",
@@ -753,7 +790,8 @@ ${isGuest(user) ? "" : "- To change an event that's already in a calendar (add t
 - Lists (shopping, packing, to-dos) with list_add, list_show and list_update. Lists in a group are shared by the group.
 - Birthdays and yearly dates with date_add; you'll remind them beforehand and on the day.
 - Keep an eye on things with watch_add ("tell me when tickets go on sale", "if this drops under £100"); you'll check and message when it changes.
-- Make or edit images with create_image (cards, invitations, edits to a photo they sent).${group ? "" : "\n- A daily morning brief: set_morning_brief turns it on or changes the time."}
+- Make or edit images with create_image (cards, invitations, edits to a photo they sent).
+- Anything too long for a few messages (a full transcript, long notes), send as a file with send_file. Never put what people send you on a file-sharing, paste or upload site, and never open Google Docs, Sheets or Drive in a web browser: for a Google Doc use docs_create or docs_append if they've connected Google, otherwise send_file.${group ? "" : "\n- A daily morning brief: set_morning_brief turns it on or changes the time."}
 - A message with a shared location pin says where they are; use that area for anything "near here".
 ${
   !group && user.admin
@@ -925,6 +963,7 @@ export async function respond(chat: Chat, batch: Incoming[], actions: ChatAction
     recommendTool,
     shareEventTool,
     ...(media() ? [imageTool] : []),
+    fileTool,
     resendTool,
     ...autoReplyTools,
     ...listTools,
@@ -1242,6 +1281,11 @@ async function runTool(
       case "set_spending_limit": {
         if (chat.group || !webEnabled()) return output("Only in a private chat.");
         const user = chat.user;
+        if (call.name === "web_task" && NOT_FOR_BROWSER.test(String(args.request))) {
+          return output(
+            "Not in the browser: Google files go through the Google tools (docs_create, docs_append, drive_read; they connect Google with /connect google), and what they send is never uploaded to file-sharing sites. To give them long text, use send_file.",
+          );
+        }
         if (call.name === "wallet") {
           const { wallets, sites } = signedInSites(user.id);
           const limit = getUsers().find((u) => u.id === user.id)?.spendLimit;
@@ -1341,6 +1385,14 @@ async function runTool(
         });
         if (result.startsWith("Sent again")) did.push(result.toLowerCase());
         return output(`${result} Don't say anything else about it unless they asked a question.`);
+      }
+      case "send_file": {
+        const text = args.latest_voice_note ? latestTranscript(chat, said) : typeof args.text === "string" ? args.text.trim() : "";
+        if (!text) return output(args.latest_voice_note ? "No voice note transcript found in this chat. Ask them to send it again." : "Nothing to send.");
+        const name = `${String(args.file_name).replace(/\.(txt|md)$/i, "").replace(/[^\w .-]+/g, "").trim().slice(0, 60) || config.name}.txt`;
+        await actions.sendFile(Buffer.from(text, "utf8"), name, typeof args.caption === "string" ? noDashes(args.caption) : undefined);
+        did.push(`sent a file: ${name}`);
+        return output(`Sent ${name} (${text.length} characters). Don't repeat what's in it; usually reply with nothing.`);
       }
       case "auto_reply_list":
         return output(listAutoReplies(chat.id));

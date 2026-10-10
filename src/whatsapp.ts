@@ -410,6 +410,11 @@ export async function sendImage(chatJid: string, image: Buffer, caption?: string
   if (msg?.key.id && msg.message) sent.set(msg.key.id, msg.message);
 }
 
+/** Sends text as a file (a transcript or write-up too long for a few messages). */
+export async function sendDocument(chatJid: string, document: Buffer, fileName: string, mimetype: string, caption?: string): Promise<void> {
+  await current().sendMessage(chatJid, { document, fileName, mimetype, ...(caption ? { caption } : {}) });
+}
+
 export async function markRead(key: WAMessageKey): Promise<void> {
   await current().readMessages([key]);
 }
