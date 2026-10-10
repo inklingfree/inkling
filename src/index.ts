@@ -10,7 +10,7 @@ import { addReminder, cancelReminder, listReminders, startReminders } from "./re
 import { clearHistory, encryptStoredChats, groupOpen, loadMemory, setGroupOpen } from "./store.js";
 import { bubbles } from "./text.js";
 import { adminLink, startWeb } from "./web.js";
-import { botPhone, groupInfo, link, markRead, releaseWhatsApp, nameCall, react, resendMedia, sendImage, sendPoll, sendText, sendVoiceNote, setPersonLookup, showTyping, startWhatsApp, type InboundMessage } from "./whatsapp.js";
+import { botPhone, groupInfo, link, markRead, releaseWhatsApp, nameCall, react, resendMedia, sendDocument, sendImage, sendPoll, sendText, sendVoiceNote, setPersonLookup, showTyping, startWhatsApp, type InboundMessage } from "./whatsapp.js";
 import { speak } from "./voice.js";
 import { startScheduler, type RunJob } from "./schedule.js";
 import { startChanges } from "./changes.js";
@@ -239,6 +239,7 @@ function chatActions(chat: Chat, chatJid: string, key?: WAMessageKey): ChatActio
     send: (text) => sendText(chatJid, text),
     sendPrivate: (text) => sendText(`${user.phone}@s.whatsapp.net`, text),
     sendImage: (image, caption) => sendImage(chatJid, image, caption),
+    sendFile: (data, fileName, caption) => sendDocument(chatJid, data, fileName, "text/plain", caption),
     resendMedia: (which) => resendMedia(chatJid, which),
     linkPersonal: () => linkPersonal(user),
     setLocation: (place) => setUserLocation(user.id, place),
